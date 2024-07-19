@@ -594,13 +594,13 @@ info_ability_plot <- function(dat, dat_label) {
 
 ### Ability Plots{.tabset}
 
-### Inconsistent
+#### Inconsistent
 
 ```{r vis1.1, echo=FALSE}
 ability_plot(test_cat_consistency1$summary, "Inconsistent")
 ```
 
-### Consistent
+#### Consistent
 
 ```{r vis1.2, echo=FALSE}
 ability_plot(test_cat_consistency5$summary, "Consistent")
@@ -608,41 +608,45 @@ ability_plot(test_cat_consistency5$summary, "Consistent")
 
 ### Residual Plots{.tabset}
 
-### Inconsistent
+#### Inconsistent
 
 ```{r vis2.1, echo=FALSE}
 residual_ability_plot(test_cat_consistency1$summary, "Inconsistent")
 ```
 
-### Consistent
+#### Consistent
 
 ```{r vis2.2, echo=FALSE}
 residual_ability_plot(test_cat_consistency5$summary, "Consistent")
 ```
 
-### Residual Plots{.tabset}
+### Ability Density{.tabset}
 
-### Inconsistent
+#### Inconsistent
 
 ```{r vis3.1, echo=FALSE}
 density_ability(test_cat_consistency1$summary, "Inconsistent")
 ```
 
-### Consistent
+Note: Density of actual abilities is in grey.
+
+#### Consistent
 
 ```{r vis3.2, echo=FALSE}
 density_ability(test_cat_consistency5$summary, "Consistent")
 ```
+Note: Density of actual abilities is in grey.
+
 
 ### Test Length{.tabset}
 
-### Inconsistent
+#### Inconsistent
 
 ```{r vis4.1, echo=FALSE}
 bar_test_length(test_cat_consistency1$summary, "Inconsistent")
 ```
 
-### Consistent
+#### Consistent
 
 ```{r vis4.2, echo=FALSE}
 bar_test_length(test_cat_consistency5$summary, "Consistent")
@@ -650,13 +654,13 @@ bar_test_length(test_cat_consistency5$summary, "Consistent")
 
 ### Information by Ability{.tabset}
 
-### Inconsistent
+#### Inconsistent
 
 ```{r vis5.1, echo=FALSE}
 info_ability_plot(test_cat_consistency1$summary, "Inconsistent")
 ```
 
-### Consistent
+#### Consistent
 
 ```{r vis5.2, echo=FALSE}
 info_ability_plot(test_cat_consistency5$summary, "Consistent")
