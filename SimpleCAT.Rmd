@@ -1,0 +1,773 @@
+---
+title: "Simple CAT"
+author: 'Scott Frohn'
+date: 'July 18, 2024'
+output: 
+  html_document: 
+    number_sections: false
+    toc: true
+    fig_width: 7
+    fig_height: 4.5
+    theme: readable
+    highlight: tango
+    code_folding: show
+---
+
+# Overview
+
+The purpose of this document is to provide an overview of how a Computerized Adaptive Test works, and simulate a simple CAT.
+
+## Prepare workspace
+
+Load packages and create function to return item coefficients.
+
+```{r setup, echo=FALSE}
+# Load packages
+library(psych)        # For descriptive stats
+library(ggthemes)     # Additional ggplot themes
+library(tidyverse)    # Keeps things tidy
+library(CATFunctions) # devtools::install_github("scottfrohn/CATFunctions")
+options(digits = 3)
+```
+
+# IRT-Based CAT
+
+Steps in implementing a CAT (adapted from Magis, Yan, von Davier, 2017)
+
+## 1. Item Bank.
+
+Before we can run a computerized adaptive test, we require an item bank, typically an IRT-calibrated bank. For this demonstration, we will simulate an IRT-calibrated item bank for dichotomously scored items (responses are scored as 0 or 1).
+
+## 2. Initial Step.
+
+The first step is to determine which item(s) to select first and deliver it. Here are a few options:
+
+a.  Item with greatest information informative around the population mean.
+b.  Item with difficulty closest to an initial ability level (Urry's rule).
+c.  Using prior information (if available), and selecting item with most info close to the expected ability.
+d.  A group of 2-3 items.
+
+However, for test security purposes we should not start with the same item(s) for everyone. If we don't use prior information and everyone starts at the same place where we assume initial ability is 0 (${\theta}_{0} = 0$), then it's likely for an IRT-calibrated item bank that at that ability level, only one item would have the greatest information (option a) or have the closest difficulty (option b), and that same item would then be used to start every CAT. This is referred to as **initial item selection bias** or a **cold start problem**, when each CAT session starts with the same item.
+
+If we don't have any prior information (which we'll assume for the purpose of this project), you'll want to introduce some variability into your initial item selection mechanism.
+
+For purposes of this simulation, we'll use option b with some variability baked-in to the initial item selection.
+
+## 3. Test Step.
+
+After the initial item has been selected, a CAT follows an iterative process to completion.
+
+1.  Record the item response.
+2.  Score the response.
+3.  Update response pattern.
+4.  Estimate ability.
+5.  If stopping rule is not satisfied:
+    a.  Identify set of eligible items.
+    b.  Select the next item from eligible items.
+    c.  Circle back to Test Step '1' and repeat the process.
+6.  If the stopping rule is satisfied:
+    a.  The test stops.
+    b.  The final ability estimate is delivered.
+
+But first, a few notes on some of the steps.
+
+### 3.2. Score the response
+
+In this CAT demonstration we are using an IRT-calibrated item bank for dichotomously scored items, though other item types could certainly be used, such as ordered polytomous items (items with multiple, ordered scoring levels). Those other models would need to be incorporated into the CAT, and the item-type specific parameters (e.g., 'step' or 'threshold' parameters for the Partial Credit model) would need to be captured in the item bank, with a way to distinguish, say, the Ordered Polytomous items from Dichotomous items for selection and scoring purposes.
+
+### 3.4. Estimate Ability
+
+The proficiency estimator can impact the precision and distribution of scores. Common methods are:
+
+1.  Maximum Likelihood Estimation (MLE) - Selects the value of ${\theta}$ that maximizes the likelihood of the response string given the item parameters.
+2.  Expected a posteriori (EAP) and Maximum a posteriori (MAP) - The value of ${\theta}$ is obtained using Bayesian approaches which sets a posterior distribution.
+    a.  EAP is the mean of the posterior proficiency distribution for a given individual
+    b.  MAP is the mode of the posterior proficiency distribution for a given individual
+
+For this document, we'll use MLE to estimate ability after each item.
+
+#### MLE
+
+One drawback of MLE is that it is undefined for response patterns with zero variance (all 0's or all 1's), and this can become problematic at early stages in the CAT. For instance, if someone gets the first item wrong, all we know is that their ability level is *probably* lower than the difficulty parameter of the first items (or thereabouts). The MLE estimate will be an ***extremely*** low value, and if we're basing item selection on the proximity of item difficulty to current ability, then likely the second item on the test will be the easiest item in the bank.
+
+To demonstrate this, I've created a MLE estimation function `est_ability_mle` that will estimate ability based on the inputs:
+
+1.  responses : a vector of item responses
+2.  as : a vector of IRT discrimination `a` parameters
+3.  bs : a vector of IRT discrimination `b` parameters
+4.  cs : a vector of IRT discrimination `c` parameters
+
+Let's imagine we answered the first item incorrectly (response = 0). Item parameters are (1, .5, .1) for (a, b, c).
+
+```{r est_1}
+est_ability_mle(0, 1, .5, .1, kludge = FALSE)$ability_est
+```
+
+An very low ability estimate (-4.09). If we base item selection on this estimate, the next item selected would b the easiest in the bank, perhaps in the neighborhood of -3 logits.
+
+Let's say we somehow miss the second question too:
+
+```{r est_1_nokludge}
+est_ability_mle(
+  c(0, 0),   # Response are 0 and 0
+  c(1, 1),   # Both 'a' params are 1
+  c(.5, -3), # Item 1 difficulty = 0.5, Item 2 difficulty = -3
+  c(.1, .1),  # Both 'c' params are 0.1
+  kludge = FALSE
+)$ability_est
+```
+
+Again, the ability estimate is very low, and we'd witness similar extreme values if we got both items correct. Therefore, we need some way to adjust the MLE function so item selection early in the CAT isn't subject to wild swings in ability estimate.
+
+#### MLE Adjustment Factor
+
+One way we can do this is by using an adjustment factor, which adds (or subtracts) a value to all values in the response string when putting them into the likelihood function. Although our IRT model presumes response values of either 0 or 1, the likelihood function will take any numerical value for responses (whether or not they make sense).
+
+Therefore, by adjusting the response strings with no variance by a little bit, we can restrict our MLE ability estimates until we get some variability in responses.
+
+To do this, I created an MLE function (`est_ability_mle_kludge`) that employs an adjustment factor (kludge) of $\frac{1}{2\sqrt{n}}$ to each item, where $n$ is the number of items in the response vector. For instance, the response vector `c(0,0,0,0)` would have an adjustment factor of $\frac{1}{2\sqrt{4}} = \frac{1}{4}$ be converted to `c(0.25, 0.25, 0.25, 0.25)`.
+
+By using this method, we can estimate ability after each of the first 4 items of a CAT. For simplicity, we'll fix the a and c parameters to be equal for each run, and set the 'b' parameter for each item to be near the previous ability estimate.
+
+```{r est2}
+# Note that default for est_ability_mle is 'kludge = TRUE'
+
+est_ability_mle(0, 1, 0.5, .1)$ability_est
+# [1] 0.5498125; let's set 'b' for Item 2 to .55
+
+est_ability_mle(rep(0,2), rep(1,2), c(0.5, .55), rep(.1, 2))$ability_est
+# [1] -1.20393; let's set 'b' for Item 3 to -1.20
+
+est_ability_mle(rep(0,3), rep(1,3), c(0.5, .55, -1.20), rep(.1, 3))$ability_est
+# [1] -2.882119; let's set 'b' for Item 4 to -2.88
+
+est_ability_mle(rep(0,4), rep(1,4), c(0.5, .55, -1.20, -2.88), rep(.1, 4))$ability_est
+# [1] -5.053933
+```
+
+As we can see, this approach really restricts the ability estimates when we have no variability in response patterns. Once the test-taker provides a response that introduces variability (e.g., they answer the 5th item correct), then this adjustment factor is ignored and the MLE estimate is based solely on the actual response patterns. Let's see what happens if they get the next 3 items correct.
+
+```{r est3}
+est_ability_mle(c(0,0,0,0,1), rep(1,5), c(0.5, .55, -1.20, -2.88, -5.05), rep(.1, 5))$ability_est
+est_ability_mle(c(0,0,0,0,1,1), rep(1,6), c(0.5, .55, -1.20, -2.88, -5.05, -4.24), rep(.1, 6))$ability_est
+est_ability_mle(c(0,0,0,0,1,1,1), rep(1,7), c(0.5, .55, -1.20, -2.88, -5.05, -4.24, -3.57), rep(.1, 7))$ability_est
+```
+
+There we go, it's coming back down to earth.
+
+
+### 3.5.b. Item Selection
+
+We have a few options for selecting the next items in a CAT:
+
+1.  **Maximum Fisher Information (MFI)**: Item with most *information* at the current ability estimate. $$ j_t^* = \arg \max_{j \in S_t} I_j(\hat{\theta}_{t-1}(X_{t-1})) $$
+
+2.  **bOpt Criterion**, or **Urry's Rule**: Item with the *difficulty* nearest the current ability estimate. $$ j_t^* = \arg \min_{j \in S_t} \left| \hat{\theta}_{t-1}(X_{t-1}) - b_j \right| $$ - Note this will be the same as MFI for Rasch and 2PL models
+
+3.  **Maximum Likelihood Weighted Information (MLWI)**: Weights the information by the likelihood function of the currently administered response pattern. Addresses the issue of MFI being severely biased in early stages of the CAT. $$ j_t^* = \arg \max_{j \in S_t} \int_{-\infty}^{+\infty} L(\theta | X_{t-1}) I_j(\theta) \, d\theta $$
+
+4.  **Maximum Posterior Weighted Information (MPWI)** $$ j_t^* = \arg \max_{j \in S_t} \int_{-\infty}^{+\infty} f(\theta) L(\theta | X_{t-1}) I_j(\theta) \, d\theta $$
+
+**Legend of Terms:**
+
+-   $j_t^*$: Selected item at step $t$
+
+-   $S_t$: Set of eligible items at step $t$
+
+-   $I_j(\theta)$: Item information function for item $j$
+
+-   $\hat{\theta}_{t-1}(X_{t-1})$: Current provisional ability estimate based on the current response pattern $X_{t-1}$
+
+-   $b_j$: Difficulty level of item $j$
+
+-   $L(\theta | X_{t-1})$: Likelihood function given response pattern $X_{t-1}$
+
+-   $f(\theta)$: Prior distribution of ability (e.g., standard normal distribution)
+
+There are several other selection methods we could use as well. For our purpose, let's just select the easiest one to implement now: **bOpt Criterion**, since the only values needed are the current ability estimate ($\hat{\theta}_{t-1}(X_{t-1})$) and eligible item locations ($b_j$).
+
+## 4. Stopping Step
+
+This step sets the parameters for terminating a CAT. There are four main stopping rules that are commonly considered:
+
+1.  Length
+    -   This sets the total number of items to be administered. Once this number is reached, the CAT terminates.
+    -   This can ensure everyone sees the same \# of items (but at the cost of varying degrees of accuracy)
+2.  Precision
+    -   Stops the CAT when the ability level reaches a predefined level of precision (e.g., a provisional ability estimate has a standard error smaller than some pre-set criterion.)
+    -   This has the benefit of efficiency, at the cost of different lengths of assessments.
+3.  Classification
+    -   Used for testing skill mastery.
+    -   The main goal is to determine if the test taker has an ability greater or less than the level of mastery.
+    -   In practice, this mastery level is set, and provisional confidence intervals are set around the provisional ability estimate. If the confidence level overlaps the mastery level, there's not enough certainty around classification and the test continues. If the provisional confidence level doesn't contain the mastery level, then a classification determination can be made confidently, and the test can terminate.
+4.  Information
+    -   Focus is the information carried by the remaining items in the item bank.
+    -   The threshold is the minimum information carried by at least one of the eligible items. Condition for the CAT to continue is that remaining items have enough information to significantly increase the total information. If, at a provisional ability estimate, all eligible items have information values smaller than the threshold, the CAT stops.
+
+For our demonstration, we'll use both length and precision as stopping criteria; we'll stop the test once (a) the standard error of our ability estimate falls below a pre-defined cutoff, otherwise the test will stop once it reaches a certain length (we want to limit the testing time).
+
+# Basic CAT, Step-By-Step
+
+As I've given the overview of how a CAT works, we've noted a few decisions we will make for this current simulation Let's summarize them up front:
+
+## Structure
+
+0.  Item Bank.
+    -   Our simulated item bank will include IRT-calibrated parameters for dichotomously scored items.
+1.  Initial Step.
+    -   Without prior information (or making assumptions there), we'll use Urry's Rule and start selecting items with a difficulty near a current ability estimate (which we'll set to 0).
+    -   To avoid over exposure of the item with `b` closest to 0, we'll add some noise to this selection.
+2.  Test Step.
+    -   We'll record and score response patterns as normal.
+    -   We'll use MLE for estimating ability
+    -   For response patterns with 0 variance, we'll adjust the patterns with a factor of $\frac{1}{2\sqrt{n}}$ to avoid wild swings in ability estimate early in the cat.
+3.  Stopping Step.
+    -   The test will stop once:
+        a.  the standard error of our ability estimate falls below a pre-defined cutoff.
+        b.  the test reaches a certain length, to limit total testing time.
+    -   Additionally, we may want the test
+
+Now that we know how we will set up our simulation, let's make it happen.
+
+## 1. Generate Item Bank
+
+Let's simulate a 3pl item bank using the `generate_item_bank` function.
+
+```{r sim_bank}
+# Number of items
+n_items <- 500
+
+# Set seed (for random params)
+set.seed(015)
+
+# Rasch, 1pl, 2pl, or 3pl
+item_type = "3pl"
+
+# Generate an item bank
+item_bank <- generate_item_bank(n_items, model = item_type)
+```
+
+### 1.a. Visualize Item Bank
+
+And let's visualize our item bank characteristics - IIFs, TIF, ICCs, and parameter distributions.
+
+```{r vis_bank, echo=FALSE}
+# Visualize item info across the entire item bank
+item_bank %>% 
+  arrange(a, b) %>%
+  item_info_bank(., range = c(-4,4)) %>% 
+  mutate(item = as.factor(item)) %>%
+  ggplot(., aes(x = thetas, y = info, group = item, color = item, fill = item)) +
+    geom_line(alpha = 0.2, linewidth = .5) + 
+    theme_clean() +
+    theme(legend.position = "none") +
+    labs(
+      title = paste0("Item Information for ",item_type," Item Bank, ",n_items," items"),
+      x = expression(theta),
+      y = "Information"
+    )
+
+# Visualize bank info across the entire item bank
+item_bank %>% 
+  arrange(a, b) %>%
+  item_info_bank(., range = c(-4,4)) %>% 
+  group_by(thetas) %>%
+  summarise(test_info = sum(info)) %>%
+  ggplot(., aes(x = thetas, y = test_info)) +
+    geom_line(alpha = 0.2, linewidth = 1) + 
+    theme_clean() +
+    labs(
+      title = paste0("Test Information for ",item_type," Item Bank, ",n_items," items"),
+      x = expression(theta),
+      y = "Information"
+    )
+
+# Visualize ICC's across the entire item bank
+item_bank %>% 
+  arrange(a, b) %>%
+  item_ICC_bank(., range = c(-4,4)) %>% 
+  mutate(item = as.factor(item)) %>%
+  ggplot(., aes(x = thetas, y = icc, group = item, color = item, fill = item)) +
+    geom_line(alpha = 0.2, linewidth = .5) + 
+    theme_clean() +
+    theme(legend.position = "none") +
+    labs(
+      title = paste0("Item Characteristic Curves for ",item_type," Item Bank, ",n_items," items"),
+      x = expression(theta),
+      y = "P"
+    )
+
+# distribution of a parameters
+item_bank %>%
+  ggplot(., aes(x = a)) + 
+  geom_density(alpha = 0.3, color = "green3", fill = "green3") +
+  theme_clean() +
+  labs(title = "Distribution of 'a' parameters")
+
+# distribution of b parameters
+item_bank %>%
+  ggplot(., aes(x = b)) + 
+  geom_density(alpha = 0.3, color = "blue3", fill = "blue3") +
+  theme_clean() +
+  labs(title = "Distribution of 'b' parameters")
+
+# distribution of c parameters
+item_bank %>%
+  ggplot(., aes(x = c)) + 
+  geom_density(alpha = 0.3, color = "purple3", fill = "purple3") +
+  theme_clean() +
+  labs(title = "Distribution of 'c' parameters")
+```
+
+## 2. Initial Step
+
+Given no prior information about the test-taker, let's select an initial item for administration using the `initial_item` function, given the `item_bank` dataframe we created earlier. This function will create the `test_event` table and populate it with information from the first item selected.
+
+```{r step_initialize}
+set.seed(123)
+(test_event <- initial_item(item_bank_df = item_bank))
+```
+
+The first item selected is item_id = 383.
+
+## 3. Test Step
+
+### 3.1 Score the response, estimate ability, and update test_event table
+
+Use the `score_reseponse` function to score this item. Let's assume we get the item **correct**.
+
+```{r step_test}
+(test_event <- score_response(
+  test_event_df = test_event, 
+  item_id = test_event$item_id[nrow(test_event)],  # Item ID
+  response = 1                                     # 1 = Correct, 0 = Incorrect
+  ))
+```
+
+Given that we got the item correct, our new ability estimate is 0.325, with a standard error of the estimate of 1.705. By default this score_response function uses the MLE kludge we mentioned earlier. If we didn't use that kludge, here's what the test_event table would look like:
+
+```{r step_score}
+(score_response(
+  test_event_df = test_event, 
+  item_id = test_event$item_id[nrow(test_event)],  # Item ID
+  response = 1,                                    # 1 = Correct, 0 = Incorrect
+  kludge = FALSE
+  ))
+```
+
+An ability estimate of 3.89, with a SE of 9.93... Yes, let's use that kludge moving forward. Again it's only going to affect item selection until there is variance in the response pattern (someone with a *zero* score gets an item correct, or someone with a *perfect* score misses an item).
+
+### 3.2 Check stopping criteria
+
+Next, we'll check to see if our stopping criteria has been met. Since we haven't set stopping criteria, let's do that now.
+
+-   Cap the number of items at 20
+-   Set the standard error threshold to be 0.5 (stop if the value is less than 0.5)
+
+Based on those, we'll use the `stop_test` function to evaluate our test_event table against our criteria.
+
+-   `TRUE` means the criteria has been met; stop the test
+-   `FALSE` means the criteria has not been met; continue the test
+
+```{r step_stop}
+stop_max_items <- 20
+stop_min_se <- 0.5
+
+stop_test(test_event_df = test_event,
+          max_items = stop_max_items,
+          min_se = stop_min_se)
+```
+
+Don't stop test. Keep moving.
+
+### 3.3 Update the table of eligible items
+
+```{r}
+eligible_items <- update_eligible_items(eligible_items_df = item_bank, 
+                                        test_event_df = test_event)
+
+paste("Of",nrow(item_bank),"items in the bank, ",nrow(eligible_items), "are eligible for selection.")
+```
+
+### 3.4 Select next item
+
+The "Urry's Rule" selection criteria selects the item with the difficulty parameter closest to the test-taker's current ability estimate.
+
+```{r step_nextitem}
+set.seed(123)
+(test_event <- next_item(eligible_items_df = eligible_items, 
+                        test_event_df = test_event))
+```
+
+And at this point, we could just keep running this, changing our "answer" to 0 or 1, until the stopping criteria is met, and the test ends.
+
+### Continue until stopping criteria are met
+
+```{r step_loop}
+# Answer to the current question
+# 0 = Incorrect, 1 = Correct
+answer <- 0
+
+# Score response
+test_event <- score_response(test_event_df = test_event, 
+                             item_id = test_event[nrow(test_event),"item_id"], 
+                             response = answer)
+# Check Stopping Criteria
+if(stop_test(test_event_df = test_event, 
+             max_items = stop_max_items, 
+             min_se = stop_min_se) == FALSE) {
+  # If stopping criteria hasn't been met, update Eligible items
+  eligible_items <- update_eligible_items(eligible_items_df = eligible_items, 
+                                          test_event_df = test_event)
+  # And select the next item.
+  (test_event <- next_item(eligible_items_df = eligible_items, 
+                           test_event_df = test_event))
+} else {
+  # If the stopping criteria has been met, end the test.
+  print(test_event)
+  "The test is complete!"
+}
+```
+
+# Basic CAT, Simulation for `n_people`
+
+Now that we have our CAT working, let's set it up and simulate for a few hundred people to check how the CAT functions.
+
+## 1. Item Bank
+
+We'll use the same item bank as in our example: `item_bank`
+
+## 2. Simulate CAT
+
+Let's simulate our CAT for 500 people, using the same stopping criteria as before.
+
+-   Max items = 20
+-   Min SE = 0.50
+
+```{r step_setup_sim}
+# Number of test takers
+n_people <- 500
+
+# Define the seed outside of the function
+seed = 123
+
+# Stopping criteria, restated
+stop_max_items <- 20
+stop_min_se <- 0.5
+
+# Create a set of ability estimates
+sample_abilities <- rnorm(n_people, 
+                          mean = 0, 
+                          sd = 1)
+```
+
+When running this simulation, however, the consistency of responses will impact how the CAT performs. For instance, we could simulate every respondent ('sim') answering exactly as expected based on their actual ability ${\theta}$ and b-parameter of item j, $b_{j}$. So if $b_{j} < {\theta}$, answer correct; if ${\theta} < b_{j}$, answer incorrect. However this type of highly consistent responding is not typical, and instead, responses will have some degree of inconsistency.
+
+To accommodate this in our simulation, the function `simulate_cat` includes an argument to vary the `response_consistency` when simulating responses. The function simulates responses by selecting a response from a binomial distribution of the `prob` function for a given ability and an item's a, b, and c parameters. The `response_consistency` value multiplies the 'a' parameter, making the probability density function steeper and therefore a selection from the binomial distribution will be more consistent with the sim's ability, ${\theta}$. The default `response_consistency` is set to 1, which doesn't impact the `prob` function, and setting this argument to values above 1 will result in more consistent responding, values between 0 and 1 will result in less consistent responding.
+
+To demonstrate the difference in simulated response consistency, we'll run the simulation for two different `response_consistency` levels: 1 and 5.
+
+```{r sim groups}
+# Run the simulation with less consistent responding
+test_cat_consistency1 <- simulate_cat(item_bank = item_bank, 
+                           abilities = sample_abilities, 
+                           seed = seed, 
+                           max_items = stop_max_items,
+                           min_se = stop_min_se,
+                           response_consistency = 1, 
+                           silent = TRUE)
+
+# Run the simulation with very consistent responding
+test_cat_consistency5 <- simulate_cat(item_bank = item_bank, 
+                           abilities = sample_abilities, 
+                           seed = seed, 
+                           max_items = stop_max_items,
+                           min_se = stop_min_se,
+                           response_consistency = 5,
+                           silent = TRUE)
+```
+
+## 3. Review CAT Summary Statistics {.tabset}
+
+### Inconsistent
+
+```{r sim_summary1, echo=FALSE}
+# Less Consistent Responses
+test_cat_consistency1$summary %>%
+  mutate(residual = ability - final_ability) %>%
+  psych::describe() %>% as.data.frame %>%
+  filter(vars !=1 ) %>% 
+  select(-vars) %>%
+  relocate(n, mean, median, sd, min, max)
+```
+
+### Consistent
+
+```{r sim_summary2, echo=FALSE}
+# Consistent Responses
+test_cat_consistency5$summary %>%
+  mutate(residual = ability - final_ability) %>%
+  psych::describe() %>% as.data.frame %>%
+  filter(vars !=1 ) %>% 
+  select(-vars) %>%
+  relocate(n, mean, median, sd, min, max)
+```
+
+Although the distribution of estimates are similar, the error associated with the inconsistent group is quite a bit larger. Let's
+
+## 4. Visualizations
+
+```{r sim_visfns, echo=FALSE}
+# Create functions to replicate the visualizations for both groups 
+# Label the colors
+dat_label_color <- list("Consistent" = "green3",
+                        "Inconsistent" = "red3")
+
+# Ability by Ability Estimate
+ability_plot <- function(dat, dat_label) {
+  ggplot(dat, aes(x = ability, y = final_ability)) +
+  geom_hline(yintercept = 0) +
+  geom_point(alpha = 0.5, color = dat_label_color[dat_label][[1]], fill = dat_label_color[dat_label][[1]]) +
+  theme_clean() +
+  labs(title = paste("Ability by Ability Estimates for the",dat_label,"group."),
+       x = "Actual Ability",
+       y = "Estimated Ability") +
+    scale_x_continuous(limits = c(-5,5)) +
+    scale_y_continuous(limits = c(-5,5)) 
+}
+
+# Residual of Ability Estimate
+residual_ability_plot <- function(dat, dat_label) {
+  dat %>%
+    mutate(residual = ability - final_ability) %>%
+  ggplot(., aes(x = ability, y = residual)) +
+  geom_hline(yintercept = 0) +
+  geom_point(alpha = 0.5, color = dat_label_color[dat_label][[1]], fill = dat_label_color[dat_label][[1]]) +
+  theme_clean() +
+  labs(title = paste("Residual Ability Estimate for the",dat_label,"group."),
+       x = "Actual Ability",
+       y = "Residual") +
+    scale_x_continuous(limits = c(-5,5)) +
+    scale_y_continuous(limits = c(-3,3)) 
+}
+
+# Density of ability estimates
+density_ability <- function(dat, dat_label){
+  ggplot(dat) +
+    geom_density(aes(x = ability), alpha = 0.7, color = "grey", fill = "grey") +
+    geom_density(aes(x = final_ability), alpha = 0.3, color = dat_label_color[dat_label][[1]], fill = dat_label_color[dat_label][[1]]) +    
+      theme_clean() +
+      labs(title = paste("Density of Ability Estimates for the",dat_label,"group."),
+           x = "Ability",
+           y = "Density") +
+    scale_x_continuous(limits = c(-5,5)) +
+    scale_y_continuous(limits = c(0, 0.5))
+  }
+
+# Test Length
+bar_test_length <- function(dat, dat_label) {
+  x_min <- min(dat$n_items)
+  x_max <- max(dat$n_items)
+    ggplot(dat, aes(x = n_items)) +
+      geom_bar(alpha = 0.5, color = dat_label_color[dat_label][[1]], fill = dat_label_color[dat_label][[1]]) +
+      theme_clean() +
+      labs(title = paste("Distribution of Test Length for the",dat_label,"group."),
+           x = "Number of Items",
+           y = "Density") + 
+      scale_x_continuous(limits = c(0,20)) +
+      scale_y_continuous(limits = c(0,150))
+}
+
+# Info at Ability Estimate
+info_ability_plot <- function(dat, dat_label) {
+  ggplot(dat, aes(x = final_ability, y = test_info_at_final_ability)) +
+  geom_hline(yintercept = 0) +
+  geom_point(alpha = 0.5, color = dat_label_color[dat_label][[1]], fill = dat_label_color[dat_label][[1]]) +
+  theme_clean() +
+  labs(title = paste("Test Information at the Final Ability Estimate for the",dat_label,"group."),
+       x = "Final Ability (Theta)",
+       y = "Test Information for Final Ability Estimate") +
+    scale_x_continuous(limits = c(-5,5)) +
+    scale_y_continuous(limits = c(0,5)) 
+}
+```
+
+### Ability Plots{.tabset}
+
+### Inconsistent
+
+```{r vis1.1, echo=FALSE}
+ability_plot(test_cat_consistency1$summary, "Inconsistent")
+```
+
+### Consistent
+
+```{r vis1.2, echo=FALSE}
+ability_plot(test_cat_consistency5$summary, "Consistent")
+```
+
+### Residual Plots{.tabset}
+
+### Inconsistent
+
+```{r vis2.1, echo=FALSE}
+residual_ability_plot(test_cat_consistency1$summary, "Inconsistent")
+```
+
+### Consistent
+
+```{r vis2.2, echo=FALSE}
+residual_ability_plot(test_cat_consistency5$summary, "Consistent")
+```
+
+### Residual Plots{.tabset}
+
+### Inconsistent
+
+```{r vis3.1, echo=FALSE}
+density_ability(test_cat_consistency1$summary, "Inconsistent")
+```
+
+### Consistent
+
+```{r vis3.2, echo=FALSE}
+density_ability(test_cat_consistency5$summary, "Consistent")
+```
+
+### Test Length{.tabset}
+
+### Inconsistent
+
+```{r vis4.1, echo=FALSE}
+bar_test_length(test_cat_consistency1$summary, "Inconsistent")
+```
+
+### Consistent
+
+```{r vis4.2, echo=FALSE}
+bar_test_length(test_cat_consistency5$summary, "Consistent")
+```
+
+### Information by Ability{.tabset}
+
+### Inconsistent
+
+```{r vis5.1, echo=FALSE}
+info_ability_plot(test_cat_consistency1$summary, "Inconsistent")
+```
+
+### Consistent
+
+```{r vis5.2, echo=FALSE}
+info_ability_plot(test_cat_consistency5$summary, "Consistent")
+```
+
+### CAT Response Pattern and Ability Estimation Plots
+
+And let's visualize the CAT response pattern and ability estimates for a few cases.
+
+Since we used the same ability estimates in our simulations, and the only thing that changed between the two was response consistency, let's see how those affected how the CAT operated.
+
+```{r vis_cat_fn, echo=FALSE}
+# Function to create the CAT plot
+cat_test_plot <- function(sim_cat, case_n, group_label = NULL) {
+  case_ability <- sim_cat$summary$ability[sim_cat$summary$case == case_n]
+  sim_cat$event %>%
+    filter(case == case_n) %>%
+    mutate(response_label = ifelse(response == 1, "Correct", "Incorrect")) %>%
+    ggplot(., aes(x = order)) +
+    geom_ribbon(aes(x = order + .5, ymin = current_ability - current_ability_se, ymax = current_ability + current_ability_se), fill = "lightblue", alpha = 0.5) +
+    geom_hline(yintercept = case_ability, color = "gray40") +
+    geom_line(aes(x = order + .5, y = current_ability, group = 1), color = "black") +
+    geom_point(aes(x = order + .5, y = current_ability), shape = 18, fill = "black", size = 4, stroke = 1) +
+    geom_text(aes(x = order + .5, y = current_ability, label = sprintf("%.2f", current_ability)), vjust = -1, hjust = 0.5, color = "black", size = 3) +
+    geom_line(aes(y = b, group = 1), linetype = "dotted") +
+    geom_point(aes(y = b, fill = response_label), shape = 21, size = 4, stroke = 1) +
+    scale_fill_manual(values = c("Correct" = "green3", "Incorrect" = "red3")) +
+    labs(x = "Item Order", y = "Theta",
+         title = "CAT Response Pattern and Ability Estimation Plot",
+         subtitle = paste0("Case ", case_n, ", \u03B8 = ", round(case_ability, 3), ifelse(is.null(group_label),"",paste0(" // ", group_label)))) +
+    scale_x_continuous(breaks = 1:50, labels = as.character(1:50)) +
+    scale_y_continuous(limits = c(-6, 6)) +
+    theme_clean() +
+    theme(axis.text.x = element_text(color = "black", face = "bold", size = 10),
+          axis.ticks.x = element_blank(),
+          panel.grid.minor = element_blank(),
+          legend.position = "none")  # Remove the legend
+}
+```
+
+Let's pick the case with the ability closest to 0, case 7.
+
+```{r vis_cat1}
+cat_test_plot(test_cat_consistency5, 7, "Consistent Group")
+```
+
+These plot show a number of things related to this CAT administration:
+
+-   The x-axis is the order of item administration, from 1 to $n$.
+-   The y-axis represents the latent theta scale, on which b-parameters and ability estimates are located.
+    -   Easier items and lower abilities are lower (more negative) on the Theta scale, harder items and higher ability are higher (more positive) on the scale.
+-   Items are represented by the filled circles. In this case there are 13 circles, as the CAT stopped before item 14.
+    -   Green fill indicates the item was answered correctly.
+    -   Red fill indicates the item was answered incorrectly.
+-   Ability estimates are depicted as black diamonds.
+    -   They are offset to represent the step between item administrations in which ability is estimated. For instance, after item 1 is administered and answered correctly, the ability estimate of this sim is 0.60. Item 2 was slightly harder, which they answered incorrectly, and their ability was estimated to be -0.38. The final ability estimate here is about 0.42.
+-   The light blue band about the ability estimate is the standard error of the estimate.
+-   The horizontal grey line represents the sim's actual ability. This will be more evident in the next plots.
+
+Let's take a look at the CAT administrations for a few cases.
+
+
+### CAT Response Plot: Case 1{.tabset}
+#### Inconsistent
+```{r vis_cat2.1}
+cat_test_plot(test_cat_consistency1, 1, "Inconsistent Group")
+```
+
+#### Consistent
+
+```{r vis_cat2.2}
+cat_test_plot(test_cat_consistency5, 1, "Consistent Group")
+```
+
+### CAT Response Plot: Case 2{.tabset}
+
+#### Inconsistent
+
+```{r vis_cat3.1}
+cat_test_plot(test_cat_consistency1, 2, "Inconsistent Group")
+```
+
+#### Consistent
+
+```{r vis_cat3.2}
+cat_test_plot(test_cat_consistency5, 2, "Consistent Group")
+```
+
+### CAT Response Plot: Case 3{.tabset}
+
+#### Inconsistent
+
+```{r vis_cat4.1}
+cat_test_plot(test_cat_consistency1, 3, "Inconsistent Group")
+```
+
+#### Consistent
+
+```{r vis_cat4.2}
+cat_test_plot(test_cat_consistency5, 3, "Consistent Group")
+```
+
+# Summary
+
+This document provided an overview of how a Computerized Adaptive Test works and demonstrated a simple CAT simulation. Key components covered include:
+
+1. Creating an item bank with IRT-calibrated parameters
+2. Implementing initial item selection strategies
+3. Estimating ability using Maximum Likelihood Estimation (MLE)
+4. Selecting subsequent items based on current ability estimates
+5. Applying stopping criteria to end the test
+
+The document then simulated CAT administrations for 500 test-takers under two conditions: consistent and inconsistent responding. Visualizations were provided to compare the performance of the CAT under these conditions, including ability estimation accuracy, test length, and information at ability estimates.
+Overall, this simulation demonstrated how CATs can efficiently estimate test-taker abilities with fewer items than fixed-form tests, and showed the impact of response consistency on CAT performance. The concepts and code provided serve as a foundation for understanding and implementing basic CAT systems.
