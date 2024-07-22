@@ -11,7 +11,7 @@ output:
     fig_height: 4.5
     theme: readable
     highlight: tango
-    code_folding: show
+    code_folding: hide
 ---
 
 # Introduction
@@ -289,54 +289,50 @@ Now that we know how we will set up our simulation, let's make it happen.
 Let's simulate a 3pl item bank using `generate_item_bank`.
 
 ```{r sim_bank}
-# Number of items
-n_items <- 500
-
-# Set seed (for random params)
-set.seed(015)
-
-# Rasch, 1pl, 2pl, or 3pl
-item_type = "3pl"
-
 # Generate an item bank
-item_bank <- generate_item_bank(n_items, model = item_type)
+item_bank <- generate_item_bank(n_items = 500, model = "3pl", seed = 015)
 ```
 
 ### 1.a. Visualize Item Bank
 
-And let's visualize our item bank characteristics - IIFs, TIF, ICCs, and parameter distributions. Functions `item_info`, `item_info_bank`, and `item_ICC_bank` are used here.
+And let's visualize our item bank characteristics - IIFs, TIF, ICCs, and parameter distributions.
 
-```{r vis_bank, echo=FALSE}
-# Visualize item info across the entire item bank
-item_bank %>% 
-  arrange(a, b) %>%
-  item_info_bank(., range = c(-4,4)) %>% 
-  mutate(item = as.factor(item)) %>%
-  ggplot(., aes(x = thetas, y = info, group = item, color = item, fill = item)) +
-    geom_line(alpha = 0.2, linewidth = .5) + 
-    theme_clean() +
-    theme(legend.position = "none") +
-    labs(
-      title = paste0("Item Information for ",item_type," Item Bank, ",n_items," items"),
-      x = expression(theta),
-      y = "Information"
-    )
+#### Item Parameters{.tabset}
 
-# Visualize bank info across the entire item bank
-item_bank %>% 
-  arrange(a, b) %>%
-  item_info_bank(., range = c(-4,4)) %>% 
-  group_by(thetas) %>%
-  summarise(test_info = sum(info)) %>%
-  ggplot(., aes(x = thetas, y = test_info)) +
-    geom_line(alpha = 0.2, linewidth = 1) + 
-    theme_clean() +
-    labs(
-      title = paste0("Test Information for ",item_type," Item Bank, ",n_items," items"),
-      x = expression(theta),
-      y = "Information"
-    )
+##### a 
+```{r vis_bank_a}
+# distribution of a parameters
+item_bank %>%
+  ggplot(., aes(x = a)) + 
+  geom_density(alpha = 0.3, color = "green3", fill = "green3") +
+  theme_clean() +
+  labs(title = "Distribution of 'a' parameters")
+```
 
+##### b
+```{r vis_bank_b}
+# distribution of b parameters
+item_bank %>%
+  ggplot(., aes(x = b)) + 
+  geom_density(alpha = 0.3, color = "blue3", fill = "blue3") +
+  theme_clean() +
+  labs(title = "Distribution of 'b' parameters")
+```
+
+##### c
+```{r vis_bank_c}
+# distribution of c parameters
+item_bank %>%
+  ggplot(., aes(x = c)) + 
+  geom_density(alpha = 0.3, color = "purple3", fill = "purple3") +
+  theme_clean() +
+  labs(title = "Distribution of 'c' parameters")
+```
+
+
+#### Item Bank Plots{.tabset}
+##### ICCs
+```{r vis_ICC}
 # Visualize ICC's across the entire item bank
 item_bank %>% 
   arrange(a, b) %>%
@@ -347,32 +343,48 @@ item_bank %>%
     theme_clean() +
     theme(legend.position = "none") +
     labs(
-      title = paste0("Item Characteristic Curves for ",item_type," Item Bank, ",n_items," items"),
+      title = paste0("Item Characteristic Curves for 3pl Item Bank, 500 items"),
       x = expression(theta),
       y = "P"
     )
-
-# distribution of a parameters
-item_bank %>%
-  ggplot(., aes(x = a)) + 
-  geom_density(alpha = 0.3, color = "green3", fill = "green3") +
-  theme_clean() +
-  labs(title = "Distribution of 'a' parameters")
-
-# distribution of b parameters
-item_bank %>%
-  ggplot(., aes(x = b)) + 
-  geom_density(alpha = 0.3, color = "blue3", fill = "blue3") +
-  theme_clean() +
-  labs(title = "Distribution of 'b' parameters")
-
-# distribution of c parameters
-item_bank %>%
-  ggplot(., aes(x = c)) + 
-  geom_density(alpha = 0.3, color = "purple3", fill = "purple3") +
-  theme_clean() +
-  labs(title = "Distribution of 'c' parameters")
 ```
+
+##### Item Info
+```{r vis_item_info}
+# Visualize item info across the entire item bank
+item_bank %>% 
+  arrange(a, b) %>%
+  item_info_bank(., range = c(-4,4)) %>% 
+  mutate(item = as.factor(item)) %>%
+  ggplot(., aes(x = thetas, y = info, group = item, color = item, fill = item)) +
+    geom_line(alpha = 0.2, linewidth = .5) + 
+    theme_clean() +
+    theme(legend.position = "none") +
+    labs(
+      title = paste0("Item Information for 3pl Item Bank, 500 items"),
+      x = expression(theta),
+      y = "Information"
+    )
+```
+
+##### Test Info
+```{r vis_test_info}
+# Visualize bank info across the entire item bank
+item_bank %>% 
+  arrange(a, b) %>%
+  item_info_bank(., range = c(-4,4)) %>% 
+  group_by(thetas) %>%
+  summarise(test_info = sum(info)) %>%
+  ggplot(., aes(x = thetas, y = test_info)) +
+    geom_line(alpha = 0.2, linewidth = 1) + 
+    theme_clean() +
+    labs(
+      title = paste0("Test Information for 3pl Item Bank, 500 items"),
+      x = expression(theta),
+      y = "Information"
+    )
+```
+
 
 ## 2. Initial Step
 
@@ -541,9 +553,8 @@ test_cat <- simulate_cat(item_bank = item_bank,
 ```
 
 ## 3. Review CAT Summary Statistics
-
-```{r sim_summary1, echo=FALSE}
-# Less Consistent Responses
+```{r sim_summary1}
+# Responses
 test_cat$summary %>%
   mutate(residual = ability - final_ability) %>%
   psych::describe() %>% as.data.frame %>%
@@ -561,12 +572,7 @@ A few things to note:
 ## 4. Visualizations
 
 First let's create the functions 
-```{r sim_visfns, echo=FALSE}
-# Create functions to replicate the visualizations for both groups 
-# # Label the colors
-# dat_label_color <- list("Consistent" = "green3",
-#                         "Inconsistent" = "red3")
-
+```{r sim_visfns}
 # Ability by Ability Estimate
 ability_plot <- function(dat) {
   ggplot(dat, aes(x = ability, y = final_ability)) +
@@ -640,7 +646,7 @@ info_ability_plot <- function(dat) {
 
 #### Ability Density
 
-```{r vis3.1, echo=FALSE}
+```{r vis3.1}
 density_ability(test_cat$summary)
 ```
 
@@ -649,25 +655,25 @@ Note: Density of actual abilities is in grey.
 
 #### Actual v. Estimate
 
-```{r vis1.1, echo=FALSE}
+```{r vis1.1}
 ability_plot(test_cat$summary)
 ```
 
 #### Residual
 
-```{r vis2.1, echo=FALSE}
+```{r vis2.1}
 residual_ability_plot(test_cat$summary)
 ```
 
 #### Test Length
 
-```{r vis4.1, echo=FALSE}
+```{r vis4.1}
 bar_test_length(test_cat$summary)
 ```
 
 #### Information
 
-```{r vis5.1, echo=FALSE}
+```{r vis5.1}
 info_ability_plot(test_cat$summary)
 ```
 
@@ -713,9 +719,17 @@ cat_test_plot <- function(sim_cat, case_n) {
 }
 ```
 
-Let's pick the case with an ability a little above 0, case 7.
+Let's pick the case with an ability a little above 0, case 7. Let's look at the data first, then plot the response pattern and ability estimates. 
 
 ```{r vis_cat1.1}
+# Look at the data
+test_cat$event %>% 
+  filter(case == 7) %>% 
+  mutate(current_ability = round(current_ability, 2), 
+         current_ability_se = round(current_ability_se, 2)) %>%
+  select(order, b, response_score, current_ability, current_ability_se)
+
+# And view the response pattern
 cat_test_plot(test_cat, 7)
 ```
 
@@ -769,7 +783,7 @@ Finally, let's look at how evenly item selection was distributed. Ideally, our i
 
 #### Count
 
-```{r item_exp1, echo=FALSE}
+```{r item_exposure}
 test_cat$event %>%
   group_by(item_id) %>% 
   summarise(exposure = n()) %>%
@@ -786,7 +800,7 @@ Looks like there is one item that has about twice as many exposures as all the o
 
 #### b-parameter
 
-```{r item_b_plot, echo = FALSE}
+```{r item_b_plot}
 test_cat$event %>%
   group_by(item_id) %>% 
   summarise(exposure = n(),
@@ -797,13 +811,12 @@ test_cat$event %>%
   scale_y_continuous(limits = c(0, 150)) +
   labs(x = "`b` parameter", y = "Exposure",
          title = "Item Exposure by 'b' parameter")
-  
 ```
 
 That makes sense - the item with *likely* the b-parameter nearest 0 is selected by far most often. There are a few corrective actions we could take. For example, we could change the `next_item` function to select from a uniform distribution of items around the starting ability estimate (0), instead of a weighted distribution. Let's look at the other items with a lot of exposure.
 
 ### Most exposed items
-```{r}
+```{r most_exposed_items}
 test_cat$event %>%
   group_by(item_id) %>% 
   summarise(exposure = n(),
@@ -817,7 +830,7 @@ Interestingly we have a few items with b-parameters beyond 0.5 logits from 0, wh
 #### Exposure and Item Order
 
 Let's take a look at the distribution of item b-parameters by the order in which the items were delivered. Perhaps this will give us insight into why some items are exposed at higher rates than others.
-```{r item_order1, echo=FALSE}
+```{r item_order}
 test_cat$event %>%
   ggplot(., aes(x = order, y = b)) +
   geom_jitter(alpha = .2, color = "red3", fill = "red3", size = .5) +
