@@ -540,7 +540,6 @@ sample_abilities <- rnorm(n_people,
                           sd = 1)
 ```
 
-
 And simulate the responses
 ```{r sim groups}
 # Run the simulation with less consistent responding
@@ -553,8 +552,9 @@ test_cat <- simulate_cat(item_bank = item_bank,
 ```
 
 ## 3. Review CAT Summary Statistics
+
 ```{r sim_summary1}
-# Responses
+# Less Consistent Responses
 test_cat$summary %>%
   mutate(residual = ability - final_ability) %>%
   psych::describe() %>% as.data.frame %>%
@@ -573,6 +573,11 @@ A few things to note:
 
 First let's create the functions 
 ```{r sim_visfns}
+# Create functions to replicate the visualizations for both groups 
+# # Label the colors
+# dat_label_color <- list("Consistent" = "green3",
+#                         "Inconsistent" = "red3")
+
 # Ability by Ability Estimate
 ability_plot <- function(dat) {
   ggplot(dat, aes(x = ability, y = final_ability)) +
@@ -729,7 +734,7 @@ test_cat$event %>%
          current_ability_se = round(current_ability_se, 2)) %>%
   select(order, b, response_score, current_ability, current_ability_se)
 
-# And view the response pattern
+# And the response pattern
 cat_test_plot(test_cat, 7)
 ```
 
@@ -811,6 +816,7 @@ test_cat$event %>%
   scale_y_continuous(limits = c(0, 150)) +
   labs(x = "`b` parameter", y = "Exposure",
          title = "Item Exposure by 'b' parameter")
+  
 ```
 
 That makes sense - the item with *likely* the b-parameter nearest 0 is selected by far most often. There are a few corrective actions we could take. For example, we could change the `next_item` function to select from a uniform distribution of items around the starting ability estimate (0), instead of a weighted distribution. Let's look at the other items with a lot of exposure.
