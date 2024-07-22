@@ -125,7 +125,6 @@ To demonstrate this, let's use the `CATFunctions` MLE estimation function `est_a
 
 Let's imagine we answered the first item incorrectly (response = 0). Item parameters a, b, and c are 1, .5, and .1, respectively. Note in the syntax we set `est_ability_mle` argument `kludge = FALSE` for a pure ML estimate. More information on the `kludge` argument below.
 
-
 ```{r est_1}
 est_ability_mle(0, 1, .5, .1, kludge = FALSE)$ability_est
 ```
@@ -182,7 +181,7 @@ One way we can adjust the maximum likelihood estimation is by using an adjustmen
 
 Therefore, by adjusting the response strings with no variance by a little bit, we can restrict our MLE ability estimates until we get some variability in responses.
 
-To do this, the function `est_ability_mle` has a (default) `kludge` argument to employ an adjustment factor of $\frac{1}{3\sqrt{n}}$ to each item, where $n$ is the number of items in the response vector. For instance, the response vector `c(0,0,0,0)` would have an adjustment factor of $\frac{1}{3\sqrt{4}} = \frac{1}{6}$ and therefore the vector would become `c(0.167,0.167,0.167,0.167)`.
+To do this, the function `est_ability_mle` has a (default) `kludge` argument to employ an adjustment factor of $\frac{1}{3\sqrt{n}}$ to each item, where $n$ is the number of items in the response vector. For instance, the response vector `c(0,0,0,0)` would have an adjustment factor of $\frac{1}{3\sqrt{4}} = \frac{1}{6}$ and therefore the vector would become `c(0.167,0.167,0.167,0.167)`. I will note that this adjustment factor is *somewhat* arbitrary, but after trying several different factors (based on roots, squares, fractions, etc), this seemed to work fairly well. 
 
 To demonstrate this method, let's estimate ability after each of the first 4 items of a CAT. For simplicity, we'll fix the a and c parameters for each run, and set the 'b' parameter for each item to be near the previous ability estimate.
 
@@ -273,11 +272,11 @@ Now that we have an overview of how an IRT-based CAT works, let's summarize some
     -   Our simulated item bank will include IRT-calibrated parameters for dichotomously scored items.
 2.  Initial Step.
     -   Without prior information (or making assumptions there), we'll use Urry's Rule and start selecting items with a difficulty near a current ability estimate (which we'll set to 0).
-    -   To avoid over exposure of the item with $b$ closest to 0, we'll add some noise to this selection (produced by default by `initial_item`.
+    -   To avoid over exposure of the item with $b$ closest to 0, we'll add some noise to this selection (produced by default by `initial_item`).
 3.  Test Step.
     -   We'll record and score response patterns as normal.
-    -   We'll use MLE for estimating ability
-    -   For response patterns with 0 variance, we'll adjust the patterns with a factor of $\frac{1}{3\sqrt{n}}$ to avoid wild swings in ability estimate early in the cat.
+    -   We'll use MLE for estimating ability.
+    -   For response patterns with 0 variance, we'll adjust the patterns with a kludge of $\frac{1}{3\sqrt{n}}$ to avoid wild swings in ability estimates (and therefore item selection) early in the CAT.
 4.  Stopping Step.
     -   The test will stop once:
         a.  the standard error of our ability estimate falls below a pre-defined cutoff.
@@ -400,7 +399,7 @@ Use the `score_reseponse` function to score this item. Let's assume we get the i
   ))
 ```
 
-Given that we got the item correct, our new ability estimate is 0.325, with a standard error of the estimate of 1.705. By default this score_response function uses the MLE kludge we mentioned earlier. If we didn't use that kludge, here's what the test_event table would look like:
+Given that we got the item correct, our new ability estimate is 0.325, with a standard error of the estimate of 1.705. By default this `score_response` function uses the MLE kludge we mentioned earlier. If we didn't use that kludge, here's what the `test_event` table would look like:
 
 ```{r step_score}
 (score_response(
@@ -438,6 +437,8 @@ Don't stop test. Keep moving.
 
 ### 3.3 Update the table of eligible items
 
+The `update_eligible_items` function does exactly that.
+
 ```{r}
 eligible_items <- update_eligible_items(eligible_items_df = item_bank, 
                                         test_event_df = test_event)
@@ -460,32 +461,40 @@ And at this point, we could just keep running this, changing our "answer" to 0 o
 ### Continue until stopping criteria are met
 
 ```{r step_loop}
-# Answer to the current question
-# 0 = Incorrect, 1 = Correct
+# Initialize the alternating answer
 answer <- 0
 
 # Score response
 test_event <- score_response(test_event_df = test_event, 
-                             item_id = test_event[nrow(test_event),"item_id"], 
+                             item_id = test_event[nrow(test_event), "item_id"], 
                              response = answer)
-# Check Stopping Criteria
-if(stop_test(test_event_df = test_event, 
-             max_items = stop_max_items, 
-             min_se = stop_min_se) == FALSE) {
-  # If stopping criteria hasn't been met, update Eligible items
-  eligible_items <- update_eligible_items(eligible_items_df = eligible_items, 
-                                          test_event_df = test_event)
-  # And select the next item.
-  (test_event <- next_item(eligible_items_df = eligible_items, 
-                           test_event_df = test_event))
-} else {
-  # If the stopping criteria has been met, end the test.
-  print(test_event)
-  "The test is complete!"
+  
+# Loop until the stopping criteria is met
+while (!stop_test(test_event_df = test_event, max_items = stop_max_items, min_se = stop_min_se)) {
+  
+    # If stopping criteria hasn't been met, update eligible_items
+    eligible_items <- update_eligible_items(eligible_items_df = eligible_items, 
+                                            test_event_df = test_event)
+    # And select the next item.
+    test_event <- next_item(eligible_items_df = eligible_items, 
+                            test_event_df = test_event)
+
+    # Alternate the answer for the next iteration
+    answer <- ifelse(answer == 0, 1, 0)
+    
+    # Score response
+    test_event <- score_response(test_event_df = test_event, 
+                                 item_id = test_event[nrow(test_event), "item_id"], 
+                                 response = answer)
 }
+
+# If the stopping criteria has been met, end the test.
+print(test_event)
+"The test is complete!"
 ```
 
-Yada yada yada, pretend we keep running this until the test stops.
+And how about that, a pretty short test. Now let's put it all together and simulate our CAT for hundreds of cases to see how well it performs.
+
 
 # Basic CAT, Simulation
 
@@ -519,42 +528,23 @@ sample_abilities <- rnorm(n_people,
                           sd = 1)
 ```
 
-When running this simulation, however, the consistency of responses will impact how the CAT performs. For instance, we could simulate every respondent ('sim') answering exactly as expected based on their actual ability ${\theta}$ and b-parameter of item j, $b_{i}$. So if $b_{i} < {\theta}$, answer correct; if ${\theta} < b_{i}$, answer incorrect. However this type of highly consistent responding is not typical, and instead, responses will have some degree of inconsistency.
 
-To accommodate this in our simulation, the function `simulate_cat` includes an argument to vary the `response_consistency` when simulating responses. The function simulates responses by selecting a response from a binomial distribution of the `prob` function for a given ability and an item's a, b, and c parameters. The `response_consistency` value multiplies the 'a' parameter, making the probability density function steeper and therefore a selection from the binomial distribution will be more consistent with the sim's ability, ${\theta}$. The default `response_consistency` is set to 1, which doesn't impact the `prob` function, and setting this argument to values above 1 will result in more consistent responding, values between 0 and 1 will result in less consistent responding.
-
-To demonstrate the difference in simulated response consistency, we'll run the simulation for two different `response_consistency` values: 1 and 5.
-
--   The first group (response_consistency = 1) will be the **Inconsistent** group.
--   The second group (response_consistency = 5) will be the **Consistent** group.
-
+And simulate the responses
 ```{r sim groups}
 # Run the simulation with less consistent responding
-test_cat_consistency1 <- simulate_cat(item_bank = item_bank, 
-                           abilities = sample_abilities, 
-                           seed = seed, 
-                           max_items = stop_max_items,
-                           min_se = stop_min_se,
-                           response_consistency = 1, 
-                           silent = TRUE)
-
-# Run the simulation with very consistent responding
-test_cat_consistency5 <- simulate_cat(item_bank = item_bank, 
-                           abilities = sample_abilities, 
-                           seed = seed, 
-                           max_items = stop_max_items,
-                           min_se = stop_min_se,
-                           response_consistency = 5,
-                           silent = TRUE)
+test_cat <- simulate_cat(item_bank = item_bank, 
+                         abilities = sample_abilities, 
+                         seed = seed, 
+                         max_items = stop_max_items,
+                         min_se = stop_min_se,
+                         silent = TRUE)
 ```
 
-## 3. Review CAT Summary Statistics {.tabset}
-
-### Inconsistent
+## 3. Review CAT Summary Statistics
 
 ```{r sim_summary1, echo=FALSE}
 # Less Consistent Responses
-test_cat_consistency1$summary %>%
+test_cat$summary %>%
   mutate(residual = ability - final_ability) %>%
   psych::describe() %>% as.data.frame %>%
   filter(vars !=1 ) %>% 
@@ -562,35 +552,28 @@ test_cat_consistency1$summary %>%
   relocate(n, mean, median, sd, min, max)
 ```
 
-### Consistent
+A few things to note:
 
-```{r sim_summary2, echo=FALSE}
-# Consistent Responses
-test_cat_consistency5$summary %>%
-  mutate(residual = ability - final_ability) %>%
-  psych::describe() %>% as.data.frame %>%
-  filter(vars !=1 ) %>% 
-  select(-vars) %>%
-  relocate(n, mean, median, sd, min, max)
-```
+- The average length of the tests is 14.69 items, with the shortest test being only 9 items. 
+- The average final standard error of the estimate was 0.49, which makes sense since that 0.50 was part of our stopping criteria.
 
-Although the distribution of estimates are similar, the error associated with the inconsistent group is quite a bit larger. Let's
 
 ## 4. Visualizations
 
+First let's create the functions 
 ```{r sim_visfns, echo=FALSE}
 # Create functions to replicate the visualizations for both groups 
-# Label the colors
-dat_label_color <- list("Consistent" = "green3",
-                        "Inconsistent" = "red3")
+# # Label the colors
+# dat_label_color <- list("Consistent" = "green3",
+#                         "Inconsistent" = "red3")
 
 # Ability by Ability Estimate
-ability_plot <- function(dat, dat_label) {
+ability_plot <- function(dat) {
   ggplot(dat, aes(x = ability, y = final_ability)) +
   geom_hline(yintercept = 0) +
-  geom_point(alpha = 0.5, color = dat_label_color[dat_label][[1]], fill = dat_label_color[dat_label][[1]]) +
+  geom_point(alpha = 0.5, color = "red3", fill = "red3") +
   theme_clean() +
-  labs(title = paste("Actual Ability by Ability Estimates for the",dat_label,"group"),
+  labs(title = paste("Actual Ability by Ability Estimates"),
        x = "Actual Ability",
        y = "Estimated Ability") +
     scale_x_continuous(limits = c(-5,5)) +
@@ -598,14 +581,14 @@ ability_plot <- function(dat, dat_label) {
 }
 
 # Residual of Ability Estimate
-residual_ability_plot <- function(dat, dat_label) {
+residual_ability_plot <- function(dat) {
   dat %>%
-    mutate(residual = ability - final_ability) %>%
+  mutate(residual = ability - final_ability) %>%
   ggplot(., aes(x = ability, y = residual)) +
   geom_hline(yintercept = 0) +
-  geom_point(alpha = 0.5, color = dat_label_color[dat_label][[1]], fill = dat_label_color[dat_label][[1]]) +
+  geom_point(alpha = 0.5, color = "red3", fill = "red3") +
   theme_clean() +
-  labs(title = paste("Residual Ability Estimate for the",dat_label,"group"),
+  labs(title = paste("Residual Ability Estimate"),
        x = "Actual Ability",
        y = "Residual") +
     scale_x_continuous(limits = c(-5,5)) +
@@ -613,12 +596,12 @@ residual_ability_plot <- function(dat, dat_label) {
 }
 
 # Density of ability estimates
-density_ability <- function(dat, dat_label){
+density_ability <- function(dat){
   ggplot(dat) +
     geom_density(aes(x = ability), alpha = 0.7, color = "grey", fill = "grey") +
-    geom_density(aes(x = final_ability), alpha = 0.3, color = dat_label_color[dat_label][[1]], fill = dat_label_color[dat_label][[1]]) +    
+    geom_density(aes(x = final_ability), alpha = 0.3, color = "red3", fill = "red3") +    
       theme_clean() +
-      labs(title = paste("Density of Ability Estimates for the",dat_label,"group"),
+      labs(title = paste("Density of Ability Estimates"),
            x = "Ability",
            y = "Density") +
     scale_x_continuous(limits = c(-5,5)) +
@@ -626,26 +609,25 @@ density_ability <- function(dat, dat_label){
   }
 
 # Test Length
-bar_test_length <- function(dat, dat_label) {
+bar_test_length <- function(dat) {
   x_min <- min(dat$n_items)
   x_max <- max(dat$n_items)
-    ggplot(dat, aes(x = n_items)) +
-      geom_bar(alpha = 0.5, color = dat_label_color[dat_label][[1]], fill = dat_label_color[dat_label][[1]]) +
-      theme_clean() +
-      labs(title = paste("Distribution of Test Length for the",dat_label,"group"),
-           x = "Number of Items",
-           y = "Density") + 
-      scale_x_continuous(limits = c(0,25)) +
-      scale_y_continuous(limits = c(0,150))
+  ggplot(dat, aes(x = n_items)) +
+    geom_bar(alpha = 0.5, color = "red3", fill = "red3") +
+    theme_clean() +
+    labs(title = paste("Distribution of Test Length"),
+         x = "Number of Items",
+         y = "Count") + 
+    scale_x_continuous(limits = c(0,25)) +
+    scale_y_continuous(limits = c(0,150))
 }
 
 # Info at Ability Estimate
-info_ability_plot <- function(dat, dat_label) {
+info_ability_plot <- function(dat) {
   ggplot(dat, aes(x = final_ability, y = test_info_at_final_ability)) +
-  geom_hline(yintercept = 0) +
-  geom_point(alpha = 0.5, color = dat_label_color[dat_label][[1]], fill = dat_label_color[dat_label][[1]]) +
+  geom_point(alpha = 0.5, color = "red3", fill = "red3") +
   theme_clean() +
-  labs(title = paste("Test Info at Final Ability Estimate for the",dat_label,"group"),
+  labs(title = paste("Test Info at Final Ability Estimate"),
        x = "Final Ability (Theta)",
        y = "Test Information for Final Ability Estimate") +
     scale_x_continuous(limits = c(-5,5)) +
@@ -653,79 +635,44 @@ info_ability_plot <- function(dat, dat_label) {
 }
 ```
 
-### Ability Plots {.tabset}
 
-#### Inconsistent
+### Group-Level Plots{.tabset}
 
-```{r vis1.1, echo=FALSE}
-ability_plot(test_cat_consistency1$summary, "Inconsistent")
-```
-
-#### Consistent
-
-```{r vis1.2, echo=FALSE}
-ability_plot(test_cat_consistency5$summary, "Consistent")
-```
-
-### Residual Plots {.tabset}
-
-#### Inconsistent
-
-```{r vis2.1, echo=FALSE}
-residual_ability_plot(test_cat_consistency1$summary, "Inconsistent")
-```
-
-#### Consistent
-
-```{r vis2.2, echo=FALSE}
-residual_ability_plot(test_cat_consistency5$summary, "Consistent")
-```
-
-### Ability Density {.tabset}
-
-#### Inconsistent
+#### Ability Density
 
 ```{r vis3.1, echo=FALSE}
-density_ability(test_cat_consistency1$summary, "Inconsistent")
+density_ability(test_cat$summary)
 ```
 
+The distribution of ability estimates resembles the actual ability distribution.
 Note: Density of actual abilities is in grey.
 
-#### Consistent
+#### Actual v. Estimate
 
-```{r vis3.2, echo=FALSE}
-density_ability(test_cat_consistency5$summary, "Consistent")
+```{r vis1.1, echo=FALSE}
+ability_plot(test_cat$summary)
 ```
 
-Note: Density of actual abilities is in grey.
+#### Residual
 
-### Test Length {.tabset}
+```{r vis2.1, echo=FALSE}
+residual_ability_plot(test_cat$summary)
+```
 
-#### Inconsistent
+#### Test Length
 
 ```{r vis4.1, echo=FALSE}
-bar_test_length(test_cat_consistency1$summary, "Inconsistent")
+bar_test_length(test_cat$summary)
 ```
 
-#### Consistent
-
-```{r vis4.2, echo=FALSE}
-bar_test_length(test_cat_consistency5$summary, "Consistent")
-```
-
-### Information by Ability {.tabset}
-
-#### Inconsistent
+#### Information
 
 ```{r vis5.1, echo=FALSE}
-info_ability_plot(test_cat_consistency1$summary, "Inconsistent")
+info_ability_plot(test_cat$summary)
 ```
 
-#### Consistent
+Most of the test information hovers between 2 and 4 
 
-```{r vis5.2, echo=FALSE}
-info_ability_plot(test_cat_consistency5$summary, "Consistent")
-```
 
 ### CAT Response Pattern and Ability Estimation Plots
 
@@ -734,9 +681,10 @@ And let's visualize the CAT response pattern and ability estimates for a few cas
 Since we used the same ability estimates in our simulations, and the only thing that changed between the two was response consistency, let's see how those affected how the CAT operated.
 
 First, let's create a function to visualize these plots.
+
 ```{r vis_cat_fn}
 # Function to create the CAT plot
-cat_test_plot <- function(sim_cat, case_n, group_label = NULL) {
+cat_test_plot <- function(sim_cat, case_n) {
   case_ability <- sim_cat$summary$ability[sim_cat$summary$case == case_n]
   sim_cat$event %>%
     filter(case == case_n) %>%
@@ -754,7 +702,7 @@ cat_test_plot <- function(sim_cat, case_n, group_label = NULL) {
     scale_fill_manual(values = c("Correct" = "green3", "Incorrect" = "red3")) +
     labs(x = "Item Order", y = "Theta",
          title = "CAT Response Pattern and Ability Estimation Plot",
-         subtitle = paste0("Case ", case_n, ", \u03B8 = ", round(case_ability, 3), ifelse(is.null(group_label),"",paste0(" // ", group_label)))) +
+         subtitle = paste0("Case ", case_n, ", \u03B8 = ", round(case_ability, 3))) +
     scale_x_continuous(breaks = 1:50, labels = as.character(1:50)) +
     scale_y_continuous(limits = c(-6, 6)) +
     theme_clean() +
@@ -765,82 +713,64 @@ cat_test_plot <- function(sim_cat, case_n, group_label = NULL) {
 }
 ```
 
-Let's pick the case with the ability closest to 0, case 7. We'll start with the **Consistent** group.
+Let's pick the case with an ability a little above 0, case 7.
 
 ```{r vis_cat1.1}
-cat_test_plot(test_cat_consistency5, 7, "Consistent Group")
+cat_test_plot(test_cat, 7)
 ```
 
-These plot show a number of things related to this CAT administration:
+This plot shows several things related to this CAT administration:
 
 -   The x-axis is the order of item administration, from 1 to $n$.
 -   The y-axis represents the latent theta scale, on which b-parameters and ability estimates are located.
     -   Easier items and lower abilities are lower (more negative) on the Theta scale, harder items and higher ability are higher (more positive) on the scale.
--   Items are represented by the filled circles. In this case there are 12 circles, as the CAT stopped before item 13.
+-   Items are represented by the filled circles. In this case there are 17 circles, as the CAT stopped before item 18.
     -   Green fill indicates the item was answered correctly.
     -   Red fill indicates the item was answered incorrectly.
 -   Ability estimates are depicted as black diamonds.
-    -   They are offset to represent the step between item administrations in which ability is estimated. For instance, after item 1 is administered and answered correctly, the ability estimate of this sim is 0.60. Item 2 was slightly harder, which they answered incorrectly, and their ability was estimated to be -0.38. The final ability estimate here is 0.42.
+    -   They are offset to represent the step between item administrations in which ability is estimated. For instance, after item 1 is administered and answered incorrectly, the ability estimate of this sim is -1.83. Item 2 was easier, which they answered correctly, and their ability estimate increased to -0.77. The final ability estimate here is 0.19.
 -   The light blue band about the ability estimate is the standard error of the estimate.
--   The horizontal grey line represents the sim's actual ability. For highly consistent responding, we'd expect the sim to get all items *below* the line correct, and items *above* the line incorrect. This will be more evident in the next plots.
+-   The horizontal grey line represents the sim's actual ability. We'd expect the sim to get items *below* the line correct, and items *above* the line incorrect.
 
-And here's the plot for the Inconsistent group
-
-```{r vis_cat1.2}
-cat_test_plot(test_cat_consistency1, 7, "Inconsistent Group")
-```
 
 Let's take a look at the CAT administrations for a few cases.
 
-### CAT Response Plot: Case 18 {.tabset}
+### Individual Cases {.tabset}
 
-#### Inconsistent
+#### Case 3
 
-```{r vis_cat2.1}
-cat_test_plot(test_cat_consistency1, 18, "Inconsistent Group")
+```{r vis_cat03}
+cat_test_plot(test_cat, 3)
 ```
 
-#### Consistent
+#### Case 18
 
-```{r vis_cat2.2}
-cat_test_plot(test_cat_consistency5, 18, "Consistent Group")
+```{r vis_cat18}
+cat_test_plot(test_cat, 18)
 ```
 
-### CAT Response Plot: Case 2 {.tabset}
+For this extreme case, there is a considerable jump in ability estimate early on, and the final ability estimate (-1.25) is a bit far from the actual ability (-1.97).
 
-#### Inconsistent
+#### Case 20
 
-```{r vis_cat3.1}
-cat_test_plot(test_cat_consistency1, 2, "Inconsistent Group")
+```{r vis_cat20}
+cat_test_plot(test_cat, 20)
 ```
 
-#### Consistent
+#### Case 97
 
-```{r vis_cat3.2}
-cat_test_plot(test_cat_consistency5, 2, "Consistent Group")
+```{r vis_cat97}
+cat_test_plot(test_cat, 97)
 ```
 
-### CAT Response Plot: Case 3 {.tabset}
+### Item Exposure {.tabset}
 
-#### Inconsistent
+Finally, let's look at how evenly item selection was distributed. Ideally, our items would have a fairly even distribution of exposure, with no items having much more exposure than others.
 
-```{r vis_cat4.1}
-cat_test_plot(test_cat_consistency1, 3, "Inconsistent Group")
-```
+#### Count
 
-#### Consistent
-
-```{r vis_cat4.2}
-cat_test_plot(test_cat_consistency5, 3, "Consistent Group")
-```
-
-### Item Exposure
-Finally, let's look at how our item selected functioned.
-
-#### Exposure Bar Charts{.tabset}
-##### Inconsistent
 ```{r item_exp1, echo=FALSE}
-test_cat_consistency1$event %>%
+test_cat$event %>%
   group_by(item_id) %>% 
   summarise(exposure = n()) %>%
   ggplot(., aes(x = exposure)) +
@@ -849,61 +779,98 @@ test_cat_consistency1$event %>%
   scale_x_continuous(limits = c(0, 150)) +
   scale_y_continuous(limits = c(0, 50)) +
   labs(x = "Exposures", y = "Count of Items",
-         title = "Item Exposure, Inconsistent Group")
+         title = "Item Exposure Counts")
 ```
 
 Looks like there is one item that has about twice as many exposures as all the others. Let's see how exposure relates to the b-parameters.
 
-##### Consistent
-```{r item_exp2, echo=FALSE}
-test_cat_consistency5$event %>%
-  group_by(item_id) %>% 
-  summarise(exposure = n()) %>%
-  ggplot(., aes(x = exposure)) +
-  geom_bar(alpha = .5, color = "green3", fill = "green3") +
-  theme_clean() +
-  scale_x_continuous(limits = c(0, 150)) +
-  scale_y_continuous(limits = c(0, 50)) +
-  labs(x = "Exposures", y = "Count of Items",
-         title = "Item Exposure, Consistent Group")
-```
+#### b-parameter
 
-Looks like there is one item that has about twice as many exposures as all the others. Let's see how exposure relates to the b-parameters.
-
-#### Exposure by b-parameter
 ```{r item_b_plot, echo = FALSE}
-test_cat_consistency1$event %>%
+test_cat$event %>%
   group_by(item_id) %>% 
   summarise(exposure = n(),
             b = mean(b)) %>%
-  mutate(Group = "Inconsistent") %>%
-  bind_rows(
-    test_cat_consistency5$event %>%
-      group_by(item_id) %>% 
-      summarise(exposure = n(),
-                b = mean(b)) %>%
-      mutate(Group = "Consistent")) %>%
-  ggplot(., aes(x = b, y = exposure, color = Group)) +
-  geom_point(alpha = 0.5) +
+  ggplot(., aes(x = b, y = exposure)) +
+  geom_point(alpha = 0.5, color = "red3") +
   theme_clean() +
   scale_y_continuous(limits = c(0, 150)) +
-  scale_color_manual(values = c("Consistent" = "green3", "Inconsistent" = "red3")) +
   labs(x = "`b` parameter", y = "Exposure",
-         title = "Item Exposure by 'b' parameter and Group")
+         title = "Item Exposure by 'b' parameter")
   
 ```
 
 That makes sense - the item with *likely* the b-parameter nearest 0 is selected by far most often. There are a few corrective actions we could take. For example, we could change the `next_item` function to select from a uniform distribution of items around the starting ability estimate (0), instead of a weighted distribution. Let's look at the other items with a lot of exposure.
 
+### Most exposed items
 ```{r}
-test_cat_consistency1$event %>%
+test_cat$event %>%
   group_by(item_id) %>% 
   summarise(exposure = n(),
             b = mean(b)) %>%
   arrange(desc(exposure)) %>% head(n = 10)
 ```
 
-Interestingly we have a few items with b-parameters beyond 0.5 logits from 0, which is the cutoff for initial item selection. That means these items are selected with great frequency beyond the first step. Additional investigation would be needed to understand how and why these items are selected over others nearby. 
+Interestingly we have a few items with b-parameters beyond 0.5 logits from 0, which is the cutoff for initial item selection. That means these items are selected with great frequency beyond the first step. Additional investigation would be needed to understand how and why these items are selected over others nearby.
+
+
+#### Exposure and Item Order
+
+Let's take a look at the distribution of item b-parameters by the order in which the items were delivered. Perhaps this will give us insight into why some items are exposed at higher rates than others.
+```{r item_order1, echo=FALSE}
+test_cat$event %>%
+  ggplot(., aes(x = order, y = b)) +
+  geom_jitter(alpha = .2, color = "red3", fill = "red3", size = .5) +
+  theme_clean() +
+  scale_x_continuous(limits = c(0.5, 20.5), breaks = seq(1,20,1), labels = seq(1,20,1)) +
+  scale_y_continuous(limits = c(-6,6)) +
+  labs(x = "Item Order", y = "b parameter",
+         title = "b-Parameters by Item Order")
+```
+
+The distinct, horizontal bands for item order 1, 2, and a little bit of 3 and 4 suggest there are one or a few items that are picked more frequently at these early steps. Let's look at the top few items for each of these steps in the CAT.
+
+```{r item_order_table}
+# First Item
+test_cat$event %>%
+  filter(order == 1) %>%
+  group_by(item_id) %>%
+  summarise(exposure = n(),
+            exposure_prop = round(exposure / 500,2), # Proportion of our total sample, where N = 500
+            b = mean(b)) %>%
+  arrange(desc(exposure)) %>%
+  head(n = 10)
+```
+
+Looking at the first items, item 85 was presented as the first item to 17% of our respondents. The remaining items all were presented first less than 8% of the time. 
+
+```{r item_order_table2}
+# Second Item
+test_cat$event %>%
+  filter(order == 2) %>%
+  group_by(item_id) %>%
+  summarise(exposure = n(),
+            exposure_prop = round(exposure / 500,2), # Proportion of our total sample, where N = 500
+            b = mean(b)) %>%
+  arrange(desc(exposure)) %>%
+  head(n = 10)
+```
+
+The table for the second items shows that 9% (n = 46) of people saw item 277 second on the test, and 8% (n = 39) saw item 457 second on the test. It's likely not a coincidence that $46 + 39 = 85$, but rather indicates that everyone who got the first item 158 incorrect had the same ability estimate and was delivered item 457, and everyone who got it right had the same ability estimate and was delivered item 277.  Let's verify. 
+
+```{r item_85_cases}
+first_item85_cases <- test_cat$event %>%
+  filter(order == 1 & item_id == 158) %>%
+  select(case) %>% pull
+  
+test_cat$event %>%
+  filter(order == 2, case %in% first_item85_cases) %>%
+  group_by(item_id) %>%
+  summarise(count = n())
+```
+
+So that confirms it. Therefore if we want to avoid imbalance of item exposure, our initial item selection perhaps should come from a more uniform distribution, rather than weighting based on distance from a starting point.
+
 
 # Summary
 
