@@ -2,6 +2,7 @@
 .Rhistory
 .RData
 .Ruserdata
+.Rproj
 app.R
 CAT_Simulation_Shiny.R
 CAT.Rproj
