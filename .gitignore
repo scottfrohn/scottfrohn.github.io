@@ -1,8 +1,8 @@
-.Rproj.user
-.Rhistory
 .RData
-.Ruserdata
+.Rhistory
+.Rmd
 .Rproj
+.Rproj.user
+.Ruserdata
 app.R
 CAT_Simulation_Shiny.R
-CAT.Rproj
