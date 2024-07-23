@@ -133,18 +133,41 @@
         padding: 10px 15px;
         font-size: 16px;
         transition: background-color 0.3s ease;
-    	}
-		.nav-link:hover {
-    	background-color: rgba(255,255,255,0.1);
-		}
+    	  }
+		    .nav-link:hover {
+    	  background-color: rgba(255,255,255,0.1);
+		    }
+		    
+		    ol, ul {
+        padding-left: 30px;
+        }
+        
+        li {
+        margin-bottom: 10px;
+        }
+        
+        
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script type="text/javascript">
+    document.addEventListener("DOMContentLoaded", function() {
+      MathJax = {
+        tex: {
+          inlineMath: [['\\(','\\)']],
+          displayMath: [['$$','$$']],
+          processEscapes: true
+        }
+      };
+    });
+    </script>
+        
     $if(highlighting-css)$
-      <style type="text/css">
-    $highlighting-css$
-      </style>
+    <style type="text/css">
+      $highlighting-css$
+    </style>
     $endif$
     $for(css)$
-      <link rel="stylesheet" href="$css$" $if(html5)$$else$type="text/css" $endif$/>
+      <link rel="stylesheet" href="$css$" $if(html5)$ $else$type="text/css"$endif$/>
     $endfor$
     $for(header-includes)$
       $header-includes$
@@ -159,7 +182,7 @@
                 <div class="dropdown">
                     <button class="dropbtn">Psychometrics</button>
                     <div class="dropdown-content">
-                        <a href="SimpleCAT.html">Simple CAT</a>
+                        <a href="CAT/SimpleCAT.html">Simple CAT</a>
                     </div>
                 </div>
                 <div class="dropdown">

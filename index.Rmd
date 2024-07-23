@@ -1,0 +1,13 @@
+---
+title: "Scott Frohn - GitHub Pages"
+output:
+  html_document:
+    template: "template.html"
+---
+
+<h1>Welcome!</h1>
+<p>I'm Scott, an experienced psychometrician, R enthusiast, assessment development expert, and budding data scientist. I'm passionate about accurately measuring psychological constructs to inform decisions related to professional, educational, and personal growth. </p>
+<p>I have my PhD in educational psychology with a focus in statistics, psychometrics, and child temperament, and since 2016 I've worked as a psychometrician in both the certification/licensure space and in EdTech. I have broad experience in psychometrics and take a holistic approach to measurement, encompassing construct definition, SME selection, assessment development and review, delivery, analysis, scoring, and maintenance.</p>
+<p>I like to say <i>"good measurement is the foundation for good science."</i> Whether you wish to measure and track student progress with formative or summative assessments, make pass/fail decisions in high-stakes tests, or examine associations with some psychological construct, if your measurement isn't reliable and valid for your stated purposes, what you do with those measurements won't be reliable or valid either. </p>
+<p>The purpose of this site is to share guidance on applied <b>Psychometrics</b>, present some personal <b>Data Science</b> projects I've worked on, and provide <b>Tutorials</b> for doing fun stuff in R.</p>
+<p>Enjoy!</p>
