@@ -1,7 +1,7 @@
-.RData
+*.RData
 .Rhistory
-.Rmd
-.Rproj
+*.Rmd
+*.Rproj
 .Rproj.user
 .Ruserdata
 app.R
