@@ -1,0 +1,120 @@
+<div class="ribbon">
+    <div class="ribbon-content">
+        <a href="/index.html" class="name">Scott Frohn</a>
+        <div>
+            <a href="/about.html" class="nav-link">About Me</a>
+            <div class="dropdown">
+                <button class="dropbtn">Psychometrics</button>
+                <div class="dropdown-content">
+                    <a href="/CAT/SimpleCAT.html">Simple CAT</a>
+                </div>
+            </div>
+            <div class="dropdown">
+                <button class="dropbtn">Data Science</button>
+                <div class="dropdown-content">
+                </div>
+            </div>
+            <!--
+            <div class="dropdown">
+                <button class="dropbtn">Tutorials</button>
+                <div class="dropdown-content">
+                </div>
+            </div>
+            -->
+        </div>
+    </div>
+</div>
+
+<style>
+    :root {
+        --primary-color: #3498db;
+        --secondary-color: #2c3e50;
+        --background-color: #f4f4f4;
+        --text-color: #333;
+        --light-text-color: #fff;
+    }
+    .ribbon {
+        background-color: var(--secondary-color);
+        padding: 15px 0;
+        position: fixed;
+        width: 100%;
+        top: 0;
+        z-index: 1000;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    .ribbon-content {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0 20px;
+    }
+    .name {
+        color: var(--light-text-color);
+        text-decoration: none;
+        font-size: 1.4em;
+        font-weight: bold;
+        transition: color 0.3s ease;
+    }
+    .name:hover {
+        color: var(--primary-color);
+    }
+    .dropdown {
+        position: relative;
+        display: inline-block;
+        margin-left: 20px;
+    }
+    .dropbtn {
+        color: var(--light-text-color);
+        padding: 10px 15px;
+        font-size: 16px;
+        border: none;
+        cursor: pointer;
+        background-color: transparent;
+        transition: background-color 0.3s ease;
+    }
+    .dropdown:hover .dropbtn {
+        background-color: rgba(255,255,255,0.1);
+    }
+    .dropdown-content {
+        display: none;
+        position: absolute;
+        background-color: #fff;
+        min-width: 180px;
+        box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+        z-index: 1;
+        border-radius: 4px;
+        overflow: hidden;
+        top: 100%;
+        left: 0;
+        opacity: 0;
+        transform: translateY(-10px);
+        transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+    .dropdown:hover .dropdown-content {
+        display: block;
+        opacity: 1;
+        transform: translateY(0);
+    }
+    .dropdown-content a {
+        color: var(--text-color);
+        padding: 12px 16px;
+        text-decoration: none;
+        display: block;
+        transition: background-color 0.3s ease;
+    }
+    .dropdown-content a:hover {
+        background-color: #f1f1f1;
+    }
+    .nav-link {
+        color: var(--light-text-color);
+        text-decoration: none;
+        padding: 10px 15px;
+        font-size: 16px;
+        transition: background-color 0.3s ease;
+    }
+    .nav-link:hover {
+        background-color: rgba(255,255,255,0.1);
+    }
+</style>

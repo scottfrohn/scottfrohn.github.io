@@ -1,0 +1,162 @@
+---
+title: "Scott Frohn - CV"
+output:
+  html_document:
+    template: "template.html"
+---
+
+## Scott Frohn 
+Psychometrician // Data Scientist // AI Enthusiast // People Leader
+
+scottfrohn@gmail.com // 402.570.6623 // Lincoln NE, USA
+
+[linkedin.com/in/scott-frohn](https://linkedin.com/in/scott-frohn/)
+
+[scottfrohn.github.io](https://scottfrohn.github.io/)
+
+### Objective
+
+As a seasoned measurement expert I seek to leverage my robust analytical skills and leadership experience to contribute to innovative psychometric solutions within the tech and education sectors. Skilled in R and SQL I aim to support data-driven decision making and strategic initiatives that enhance operational efficiency and product development. Committed to fostering collaborative environments I aspire to lead and grow teams ensuring they remain at the forefront of technological advances like AI and stay adaptable in rapidly evolving industries.
+
+### Summary
+
+- Extensive experience developing implementing and evaluating psychometric tests.
+- Broad experience in research methodology including research design data collection and statistical analyses.
+- Proficient in R and SQL for data wrangling manipulation cleaning analysis and visualization.
+- Talented people leader adept at performance management change management and project management.
+- Expertise in leveraging generative AI to automate and augment work streams and increase efficiency.
+- Skilled data communicator able to easily convey complex technical details to diverse audiences.
+
+### Skills
+
+- **Technical:** R | PostgreSQL | SPSS | MPlus | Git | MS Excel | Miro | Slab | Shortcut | SurveyMonkey | Google Workspace
+- **Methodological:** CTT | IRT | CFA | DIF | CAT | Job Analyses | Standard Setting | Testing Standards | Statistical Modeling
+- **AI:** AI-Augmented Assessment Development | ChatGPT | Custom GPTs | Claude | Perplexity | Prompt Engineering
+- **Leadership:** Team Building | Performance Management | Recruitment | Hiring | Training | Teaching | Mentoring 
+
+### Experience
+
+#### Workera.ai // Remote (November 2021 – April 2024)
+
+##### Senior Manager of Assessment & Psychometrics (Sep 2022 - Apr 2024)
+
+- Led an internationally distributed team of 15 assessment developers assessment program managers copywriters and psychometricians.
+- Directed the development maintenance monitoring and reporting of over 70 signature skills assessments and more than 10 client custom assessments.
+- Created more efficient and user-friendly processes by collaborating with product and applied science teams on initiatives such as developing an item banking system enhancing assessment delivery UI and creating an AI-powered tool for automating custom assessment creation. 
+- Decreased assessment development time by 60% by spearheading projects to use publicly available large language models (LLMs) to generate items and competency models and automate short answer item scoring. 
+- Supported annual recurring revenue (ARR) of $500k by driving custom assessment development for five clients.
+- Enabled better performance tracking and data-driven decision-making by formulating and monitoring KPIs.
+- Recruited top talent by designing and executing recruiting strategy as hiring manager for various positions.
+
+##### Senior Psychometrician (Nov 2021 - Sep 2022)
+
+- Conducted psychometric analyses for 70+ assessments (item analysis calibration standard setting test analysis).
+- Improved team operational efficiency and accuracy by standardizing systems processes and documentation. 
+- Ensured the validity of Workera assessments by designing and implementing procedures for all psychometric activities including competency modeling item review exam review pilot testing item analysis and calibration.
+- Ensured reproducibility of work by creating and standardizing SQL queries and R analyses.
+- Increased team performance by providing quarterly training on psychometric best practices.
+
+#### PSI Services // Olathe KS (November 2021 – April 2024)
+
+##### Director Psychometrics (Apr 2020 - Nov 2021)
+
+- Managed and mentored 10 psychometricians and executed department strategic planning including workforce planning and collaboration with business development on updating service offerings and pricing strategy.
+- Optimized work processes by creating analytic tools and standard operating procedures (SOPs) for department.
+- Strengthened client relationships by partnering with clients to deliver industry presentations.
+- Oversaw a client project to detect and address cheating behavior enhancing the integrity of assessment results.
+- Improved accuracy of equating by leading project to automate Classical Test Theory (CTT) equating procedures.
+- Provided smooth and comprehensive new hire experience by developing onboarding process and leading training for five new psychometricians.
+
+##### Psychometrician (May 2018 - Apr 2020)
+##### Associate Psychometrician (Jul 2017 - May 2018)
+##### Intern (May 2016 - Aug 2016)
+
+- Provided high-quality psychometric oversight for a diverse portfolio of client certification programs accredited to NCCA ABSNC and ISO-17024 standards.
+- Enhanced validity and reliability of assessments by conducting psychometric analyses and studies including item analyses job analyses and standard setting.
+- Developed content outlines and test blueprints by leading over 15 survey-based job analysis studies.
+- Improved quality and effectiveness of test items by facilitating over 10 item writing workshops. 
+- Provided appropriate and defensible cut scores by leading 15 Modified-Angoff standard-setting studies.
+- Enhanced team performance by initiating and delivering regular training to psychometric and content science teams on best practices in item writing data handling R and Excel.
+
+#### UNL - Early Development & Learning Lab Lincoln NE (August 2012 – May 2017)
+
+##### Researcher (Aug 2016 - May 2017)
+##### Graduate Assistant (Aug 2012 - May 2016)
+
+- Supported a large NIH-funded longitudinal research project by collecting and analyzing data on children's temperament and sleep habits and co-authoring several peer-reviewed publications.
+- Improved efficiency and accuracy of data collection and entry by developing 15 Excel/VBA-based data collection tools and creating a comprehensive data dictionary for over 20 measures.
+- Mentored junior researchers and assistants in data collection observational rating and research methodology.
+- Served as lab methodologist using R and MPlus for statistical analyses and modeling.
+
+#### UNL - Department of Educational Psychology Lincoln NE (August 2015 – May 2016)
+
+##### Graduate Teaching Assistant 
+
+- Taught two undergraduate courses in Educational Psychology for preservice teachers.
+- Developed and delivered all lesson plans teaching materials and summative and formative assessments.
+
+### Education
+
+#### University of Nebraska-Lincoln
+
+- **PhD Educational Psychology (Aug 2017)**
+  - Major: Development and Learning Sciences
+  - Minor: Quantitative Qualitative and Psychometric Methods
+  - Dissertation: Evaluating and Revising the Children’s Behavior Questionnaire Effortful Control Scales
+
+- **MA Educational Psychology (Dec 2013)**
+  - Major: Cognition Learning and Development
+
+- **BS Business Administration (May 2008)**
+  - Major: Economics
+
+
+### Publications & Presentations
+
+#### Peer-Reviewed Publications
+
+- **Frohn, S.**, Acar, I. H., Rudasill, K. M., Buhs, E. S., & Pérez-González, S. (2021). Temperament and social adjustment in first grade: the moderating role of teacher sensitivity. Early child development and care, 191(9), 1427-1448.
+- White, A. S., Sirota, K. M., **Frohn, S.**, Swenson, S. E., & Rudasill, K. M. (2021). Temperamental constellations and school readiness: a multivariate approach. International journal of environmental research and public health, 18(1), 55.
+- Acar, I. H., **Frohn, S.**, Prokasky, A., Molfese, V. J., & Bates, J. E. (2019). Examining the associations between performance based and ratings of focused attention in toddlers: Are we measuring the same constructs? Infant and Child Development, 28(1), e2116.
+- Rudasill, K. M., Prokasky, A., Tu, X., **Frohn, S.**, Sirota, K., & Molfese, V. J. (2014). Parent vs. teacher ratings of children's shyness as predictors of early academic skills. Learning and individual differences, 34, 57-62.
+
+#### Book Chapters
+
+- White, A., **Frohn, S.**, Sirota, K., Rudasill, K. M., Swenson, S. (2018). Transitions to kindergarten: Considering children’s temperament. In A. Mashburn, J. LoCasale-Crouch, & K. Pears (Eds). Welcome to Kindergarten! Describing, Explaining, and Promoting Children’s Positive Transitions to School.
+- White, A. S., Sirota, K. N., **Frohn, S.**, Swenson, S. E., & Rudasill, K. M. (2018). Children’s temperament and the transition to kindergarten: A question of “fit”. Kindergarten Transition and Readiness: Promoting Cognitive, Social-Emotional, and Self-Regulatory Development, 225-245.
+- Moritz Rudasill, K. M., **Frohn, S.**, & Swenson, S. (2017). Children’s temperament and their interactions with teachers. In S. Grilli, I. Buonomo, C. Fiorilli, and K. Moritz Rudasill (Eds.) Easy or not: Children’s temperament at school. Rome, Italy: Carocci Editore.
+- **Frohn, S.** (2017). An Evaluation and Revision of the Children's Behavior Questionnaire Effortful Control Scales. [Unpublished doctoral dissertation] University of Nebraska-Lincoln.
+
+#### Presentations
+
+- **Frohn, S.** (September 2023). Putting ChatGPT to the test: Practical Applications of LLMs in Assessment Development. Nebraska Academy for Methodology Analytics and Psychometrics. [Video](https://mapacademy.unl.edu/training/video-presentations-page.php)
+- **Frohn, S.**, Tucker-Perry, N., & Nutanix (April 2021). So your test content has been compromised. Now what? Presentation at the Association of Test Publishers Innovations Conference, Virtual.
+- **Frohn, S.**, Hanni, B., Martorella, H., Rich, M. (October 2020). Conducting a Role Delineation Study during a Pandemic. Presentation at American Board of Nursing Specialties Fall Conference, Virtual.
+- **Frohn, S.**, Brewer, M. (November 2019). Judge a Fish by its Ability to Swim: Standard Setting and Equating of Practical Examinations using Rubrics. Presentation at the I.C.E. Exchange, San Diego.
+- **Frohn, S.**, & Putnam, S. (May 2018). Conceptual and Methodological Issues in the Development of Questionnaires. Workshop at the Occasional Temperament Conference, Murcia, Spain.
+- **Frohn, S.**, Prokasky, A. A., & Putnam, S. (October 2016). Reconstructing the CBQ-VSF Effortful Control Scale: Comparing CTT and IRT Approaches. Poster presented at the Occasional Temperament Conference, Seattle, WA.
+- **Frohn, S.**, Acar, I. H., Moritz Rudasill, K., Buhs, E. S., & Pérez-González, S. (August 2016). Temperament and teacher sensitivity predict social adjustment in first grade. Poster presented at the American Psychological Association convention, Denver, CO.
+- **Frohn, S.**, Moritz Rudasill, K., Acar, I. H., Pérez-González, S., Hawley, L. (April 2015). Teacher sensitivity and the link between difficult temperament and childhood social adjustment. Poster presented at the UNL College of Education and Human Sciences Research Fair, Lincoln, NE.
+- **Frohn, S.**, & Buhs, E. (March 2015). Modeling links between victimization, organized activity participation, and internalizing symptoms in adolescents by gender. Poster presented at the Society for Research in Child Development biennial meeting, Philadelphia, PA.
+- Buhs, E., Temmen, C., & **Frohn, S.** (March 2015). Latino youth family and community: Potential moderation of peer victimization and links to internalizing/externalizing symptoms. Poster presented at the Society for Research in Child Development biennial meeting, Philadelphia, PA.
+- **Frohn, S.**, Rudasill, K. M., & Buhs, E. (November 2014). Teacher Sensitivity and the Link between Difficult Temperament and Childhood Social Problems. Paper presented at the Occasional Temperament Conference, Lincoln, NE. 
+- **Frohn, S.**, Buhs, E., & Zweifel, M. (October 2014). Organized out-of-school activity participation and gender as moderators of the link between victimization and internalizing symptoms. Poster presented at the Midwestern Social Development Consortium, Lawrence, KS.
+- **Frohn, S.**, Nord, J., Song, J., Schroeter, R., Gallagher, J., Prokasky, A., Rudasill, K.M., Molfese, V.J., Molfese, D.L., & Bates, J.E. (October 2014). Comparisons of Parent-Report Measures of Toddlers’ Sleep Problems with Actigraphy. Poster presented at the UNL College of Education and Human Sciences Research Fair, Lincoln, NE.
+- **Frohn, S.**, Buhs, E., & Zweifel, M. (April 2014). Peer victimization and internalizing symptoms: The moderating roles of organized out-of-school activity participation and gender. Poster presented at the UNL Research Fair Graduate Poster Session, Lincoln, NE.
+
+#### Unpublished Technical Reports (not exhaustive)
+
+- **Frohn, S.** (2021). Job Task Analysis for the Certified Professional in Healthcare Quality (CPHQ®) Program. Unpublished technical report, Healthcare Quality Certification Commission (HQCC).
+- **Frohn, S.** (2021). Standard Setting Study for the Advanced Oncology Certified Nurse Practitioner (AOCNP®) Program. Unpublished technical report, Oncology Nursing Certification Corporation (ONCC®).
+- **Frohn, S.** (2021). Role Delineation Study for the Certified Post Anesthesia Nurse (CPAN®) Program. Unpublished technical report, American Board of Perianesthesia Nursing Certification.
+- **Frohn, S.** (2021). Practice Analysis for the International Board Certified Lactation Consultant® (IBCLC®) Program. Unpublished technical report, International Board of Lactation Consultant Examiners® (IBLCE®).
+- **Frohn, S.** (2021). Role Delineation Study for the Certified Ambulatory Perianesthesia Nurse (CAPA®) Program. Unpublished technical report, American Board of Perianesthesia Nursing Certification.
+- **Frohn, S.** (2021). Standard Setting Study for the Certified Pediatric Hematology Oncology Nurse (CPHON®) Program. Unpublished technical report, Oncology Nursing Certification Corporation (ONCC®).
+- **Frohn, S.** (2021). Standard Setting Study for the Certified Paralegal (CP®) Program. Unpublished technical report, National Association of Legal Assistants (NALA).
+- **Frohn, S.** (2020). Job Analysis for the Certified Construction Contract Administrator (CCCA®) Program. Unpublished technical report, Construction Specifications Institute.
+- **Frohn, S.** (2020). Role Delineation Study for the Oncology Certified Nurse (OCN®) Program. Unpublished technical report, Oncology Nursing Certification Corporation (ONCC®).
+- **Frohn, S.** (2020). Role Delineation Study for the Certified Breast Care Nurse (CBCN®) Program. Unpublished technical report, Oncology Nursing Certification Corporation (ONCC®).
+- **Frohn, S.** (2020). Role Delineation Study for the Bone Marrow Transplant Certified Nurse (BMTCN®) Program. Unpublished technical report, Oncology Nursing Certification Corporation (ONCC®).
+- **Frohn, S.** (2019). Standard Setting Study for the Certified Hospice & Palliative Pediatric Nurse (CHPPN®) Program. Unpublished technical report, Hospice and Palliative Credentialing Center.
+- **Frohn, S.** (2018). Role Delineation Study for the Certified Hospice & Palliative Pediatric Nurse (CHPPN®) Program. Unpublished technical report, Hospice and Palliative Credentialing Center.
+- **Frohn, S.** (2017). Role Delineation Study for the Certified Pediatric Hematology Oncology Nurse (CPHON®) Program. Unpublished technical report, Oncology Nursing Certification Corporation (ONCC®).

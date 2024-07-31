@@ -1,0 +1,1965 @@
+---
+title: "Vertical Scaling"
+author: 'Scott Frohn'
+date: "`r Sys.Date()`"
+bibliography: "../references.bib"
+output: 
+  html_document: 
+    number_sections: false
+    mathjax: "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"
+    css: "../styles.css"
+    includes: 
+      before_body: "../header.html"
+      after_body: "../footer.html"
+    toc: false
+    fig_width: 7
+    fig_height: 4.5
+    theme: readable
+    highlight: tango
+    code_folding: hide
+---
+
+*Note: In this document, all R code is hidden by default to improve readability. You can reveal individual code chunks by clicking "Show" or display all code at once by clicking the "Code" button at the top right.*
+
+## Introduction
+
+The purpose of this project is to demonstrate the implementation and evaluation of vertical scaling for educational assessment. We'll be expanding on examples provided in the documentation for the [`plink`](https://cran.r-project.org/web/packages/plink/plink.pdf) package.
+
+This notebook will cover:
+
+1. IRT common-item vertical scaling for two groups (Example 1) and six groups (Example 2)
+2. Simulating response data for multi-group (Example 1) and longitudinal (Example 2) data.
+3. Evaluating vertical scaling results.
+4. Comparing different scaling techniques for score reporting.
+
+**Vertical scaling** is a statistical technique used in educational testing to create a common scale for measuring student performance across different grade levels or age groups. This approach allows educators and researchers to track and compare student progress over time, ensuring that test scores are interpretable and comparable across grades.
+
+A few key concepts related to Vertical Scaling:
+
+- **Common Scale**: Vertical scaling links test scores from different grade levels onto a single scale, allowing for meaningful comparisons across grades.
+- **Growth Measurement**: By placing scores from different grade levels on the same scale, vertical scaling facilitates the measurement of student growth and progress over time.
+- **Developmental Continuum**: The resulting scale represents a developmental continuum, reflecting increasing levels of knowledge and skills as students advance through grades.
+
+The two examples in this project use **common item** vertical scaling of unidimensional item parameters. The first example is a simple two-group example, and the second is a more complex example of scaling spanning 6 grades (Grades 3 - 8). In a **common items** scaling design, all grades are given separate tests, with adjacent grades sharing common items. The common items are used to form a linking chain. So for instance, in our example with 6 grades, the lowest grade (Grade 3) is used as the base scale, and the Grade 4 items are linked the base scale using common items, and the Grade 5 items are linked to the linked Grade 4 items, and so on. 
+
+There are other approaches to vertical scaling, such as a **scaling test** design. In this design, a 'scaling test' spanning the entire breadth of content for all grades is administered to a representative sample of students with participation from each grade. Then everyone in each grade is also given a 'level test' for their grade. This scaling test is used to place level test scores along the developmental scale. 
+
+For additional reading on Vertical Scaling, I'll recommend:
+
+- @kolen2014test, section 9.10 for a solid overview of Vertical Scaling.
+- @young2015vertical for a comprehensive review of Vertical Scaling.
+- @tong2007comparisons for an empirical evaluation of different approaches to Vertical Scaling.
+
+#### Prepare Workspace 
+First, load the relevant packages, including custom package `CATFunctions` to support the MLE estimation, and create a function to employ parallel process for efficient ability estimation during simulation.
+```{r message=FALSE, warning=FALSE}
+library(plink)     # Links tests
+library(psych)     # Descriptive Stats
+library(janitor)   # Clean up data
+library(tidyverse) # Keep things tidy
+library(mirt)      # IRT Modeling
+library(parallel)  # To run heavy  est_abilities_parallel function 
+library(ggthemes)  # for theme_clean()
+library(purrr)     # Functional programming
+library(lme4)      # Growth curve modeling
+library(nlme)      # For estimating linear models w/ MLE
+library(CATFunctions) # devtools::install_github("scottfrohn/CATFunctions")
+options(digits = 3)
+
+# Parallel processing function
+est_abilities_parallel <- function(
+    # Estimates abilities for all cases in a dataframe of item responses
+  response_df,      # dataframe of item responses
+  as,               # a params for each item in the response_df
+  bs,               # b params for each item in the response_df 
+  cs                # c params for each item in the response_df
+) {
+  # Split response_DF into a list of vectors for every case
+  responses_list = split(response_df, seq(nrow(response_df)))
+  # Use all but 1 core
+  num_cores <- detectCores() - 1
+  # Make cluster for the # of selected cores
+  cl <- makeCluster(num_cores)
+  # Export local variables
+    clusterExport(cl, 
+                  c("est_ability_mle", "prob", "check_lengths", "as", "bs", "cs"), 
+                  envir = environment())
+    # Estimate ability for all responses using all identified cores
+    abilities <- parLapply(cl, responses_list, function(responses) {
+      est_ability_mle(responses, as, bs, cs)
+      }
+      )
+      stopCluster(cl) 
+  # Combine it all together
+  abilities <- do.call(bind_rows, lapply(abilities, function(x) {
+    data.frame(ability_est = x$ability_est, ability_est_se = x$ability_est_se)
+  }))
+  abilities
+}
+```
+
+
+## Example 1: Two Groups
+
+### The Dataset{.tabset}
+**KB04 / Kolen - Brennan (2004)**: This (unidimensional) dataset includes three parameter logistic model (3PL) item parameter estimates for two groups. Both forms were calibrated separately. The Form X items are from a "new" form and the Form Y items are from an "old" form. The data are listed in Table 6.5 in both the 2nd (2004) and 3rd (2014) edition. There are 12 common items between the two forms. We can load the `KB04` dataset from `plink`. Terms I'll use to describe data herein:
+
+- **Form X**: the first form
+- **Group X**: the simulated group who took Form X.
+- **Form Y**: the second form
+- **Group Y**: the simulated group who took Form Y.
+- **Sims**: simulated respondents
+
+
+#### Form X
+```{r}
+KB04 <- KB04
+
+KB04$pars$form.x
+```
+
+This is the unaltered `KB04$pars$form.x` table from our dataset.
+
+#### Form Y
+```{r}
+KB04$pars$form.y
+```
+
+This is the unaltered `KB04$pars$form.y` table from our dataset. Note the rows are labeled 36:72 (instead of 1:36).
+
+#### Common Items
+```{r}
+KB04$common
+```
+This is the unaltered `KB04$common` table from our dataset. Note the numbers under `form.y` reference the row index, and not the row label. Therefore the '3' here refers to item labeled '37' in the `KB04$pars$form.y` table. The scaling functions do not use the row labels, but rather the indices.
+
+### Item Evaluation
+Let's take a look at the ICCs of our common items and see how they compare from the separate calibrations.
+```{r}
+# Named vector to change the default item names generated by item_ICC_bank (row names)
+recode_vector <- setNames(KB04$common[,"form.x"], c(1:12))
+
+# Table that contains points for ICCs
+common.pars <- KB04$pars$form.x[KB04$common[,"form.x"],] %>%
+  rename_with(., ~ c("a","b","c")) %>% 
+  item_ICC_bank %>%
+  mutate(form = "x") %>%
+  bind_rows(
+    KB04$pars$form.y[KB04$common[,"form.y"],] %>%
+      rename_with(., ~ c("a","b","c")) %>% 
+      item_ICC_bank %>%
+      mutate(form = "y")
+) %>% 
+  mutate(item = recode(item,
+                       !!!recode_vector))
+
+# Faceted ICC plots
+common.pars %>% 
+  ggplot(., aes(x = thetas, y = icc, color = form)) +
+  geom_line() +
+  facet_wrap(~ item) +
+  scale_color_manual(values = c("x" = "green3", "y" = "blue3")) +
+  labs(
+    title = "Item Characteristic Curves",
+    x = expression(theta),
+    y = "Probability of Correct Response"
+  ) +
+  theme_clean() +
+  theme(legend.position = "bottom")
+```
+
+Item 27 seems to stand out, performing considerably differently across two groups. We could perform analyses to detect the extent of this differential item functioning, but that's beyond the scope of this project. We'll just assume 27 demonstrates unacceptable DIF, and leave that out in our scaling. 
+
+
+### Vertical Scaling
+
+Before we conduct vertical scaling, there are a few decisions we need to make. For instance:
+
+1. What method to transform (`rescale`) the IRT parameters should we use? There are a few ways, some using the means and standard deviations of common items (Mean/Mean `"MM"`,  Mean/Sigma `"MS"`), and some using item characteristic curve transformations (Haebara `"HB"`, Stocking-Lord `"SL"`). Each of these methods will produce Slope (A) and Intercept (B) parameters to linearly transform item parameters from Form X to the scale of Form Y. Let's just go with Mean/Sigma. 
+2. What base group (`base.grp`) should we use? Let's use Form Y (`base.grp = 2`) for the base scale, transforming Form X item parameters to the Form Y scale. The base group number is defined by the order in which the group appears in the `irt.pars` class object we pass into the model (for us it's `KB04$pars`).
+3. Do we want to use a scaling constant (`D`)? Using a constant like `D = 1.7` would transform our results to the normal ogive model. For us, since the `KB04` items were calibrated with BILOG-MG using the default 1.7 scaling constant, we'll use the constant also.
+4. Do we need to `exclude` any of the common items? Based on our evaluation of the common item ICCs from above, let's drop item 27 (`exclude = list(27, NA)`).
+
+```{r}
+# Create irt.pars object with two groups (all dichotomous items)
+kb04.pm <- as.poly.mod(36)  # Create a poly.mod object with 36 items
+                            # Default model = "drm" for dichotomous responses model
+                            # All items are of the same model family (drm)
+
+kbo4.irt.pars <- as.irt.pars(       # Turn values into an `irt.pars` object
+  x = KB04$pars,                    # An object of class `irt.pars` with multiple groups
+  common = KB04$common,             # Matrix of common items between the groups
+  cat = list(rep(2,36),rep(2,36)),  # Number of response categories for all 36 
+                                    # items in the datasets; Two response cats
+  poly.mod = list(kb04.pm, kb04.pm) # Lists the poly.mod objects that defines 
+                                    # the models for each item (all are the 
+                                    # same, 36 'drm' items)
+                             )
+
+# rescale the item parameters using the Mean/Sigma linking constants,
+# and exclude item 27 from the common item set
+kb04.out <- plink(kbo4.irt.pars, 
+             rescale = "MS",        # Transform parameters to the base scale, using Mean/Sigma (Mean/SD) method
+             base.grp = 2,          # The base scale is group 2 (form.y)
+             D = 1.7,               # The scaling constant to transform the logistic model; D=1.7 is equivalent to the normal ogive model
+             exclude = list(27,NA)) # Excludes item 27 from the linking process
+
+# And get the new item parameters. 
+kb04.pars.out <- link.pars(kb04.out)
+```
+
+
+#### Scaling Summary
+Now let's examine a summary of the scaling.
+```{r}
+summary(kb04.out, descrip = TRUE)
+```
+
+What this output tells us:
+
+1.  The 11 common items were all 3pl calibrated (we had 12, but dropped item 27).
+
+2.  The Slope (A) and Intercept (B) parameters for the different types of linear scaling methods are presented. Since we used `rescale = 'MS'`, our parameters are in the row marked `Mean/Sigma` which can be used to rescale the 3pl item parameters for Form X (since Form Y was our base form). These parameter are: 
+
+- A (slope) = 1.176074 
+- B (intercept) = -0.504188
+
+3.  Because these are the linear differences in common items, we can somewhat interpret the intercept (about -0.50), to indicate that that the group that took Form X are on average, about 1/2 a Standard Deviation lower in ability than the group that took Form Y
+
+4.  The last table shows the descriptive stats of parameters for the common items for Form Y (To) and Form X (From). Note the SD calculated here is the population SD, so if you're checking the calculations, the R function `sd()` only reports sample SD and will be slightly off.
+
+
+#### Verify Scaling Results
+
+Let's check those item parameters from the final scaling object (`kb04.out`). Note that Form Y (`group2`) parameters should be the same, and Form X (`group1`) parameters will be different.
+
+##### Form Y
+
+Since they shouldn't have changed, let's check Form Y first.
+
+```{r}
+# Pull out the form y parameters
+(form.y.params <- KB04$pars$form.y %>%  # 1. Original parameters, "before" scaling
+  rename(a.before = "discrimination",
+         b.before = "difficulty",
+         c.before = "asymptote") %>%
+  bind_cols(kb04.pars.out$group2 %>%    # 2. New parameters, "after" scaling"
+              as.data.frame() %>%
+              setNames(c("a.after","b.after","c.after"))) %>%
+   mutate(item = seq(1:nrow(kb04.pars.out$group2)),
+          common = ifelse(item %in% data.frame(kb04.out$pars@common)[,2],
+                          1,0)) %>%
+   relocate(item, common, a.before, a.after, b.before, b.after, c.before, c.after)
+)
+
+# Check the number of items that have different before and after parameters 
+form.y.params %>%
+  mutate(a.diff = a.before - a.after, # Difference between the params before and after scaling
+         b.diff = b.before - b.after,
+         c.diff = c.before - c.after) %>%
+  select(a.diff, b.diff, c.diff) %>%
+  summarise(a_differences = sum(a.diff != 0),
+            b_differences = sum(b.diff != 0),
+            c_differences = sum(c.diff != 0)) %>% 
+  t() %>% data.frame("N.items" = .)
+```
+
+The first table shows a side-by-side comparison of parameters 'before' and 'after' scaling for each item. Looks like nothing has changed (which is what we expect). The second (custom) table provides a summary of the number of different parameters, which we can confirm is 0 for `a`, `b`, and `c`. Looks good, let's check Form X now.
+
+##### Form X
+
+So let's use those linear scaling parameters to manually rescale the original Form X parameters and compare against the output from `plink`.
+
+Note that the parameter transformation equations are different for each parameter:
+
+1.  Discrimination (a): a' = a / slope
+2.  Difficulty (b): b' = b \* slope + intercept
+3.  Asymptote (c): c' = c
+
+```{r}
+# Get the slope and intercept from the scaling output. If we wanted to, we could change the '$MS' to '$MM', '$HB', or '$SL' to access the other linear parameters for the other 3 scaling methods. 
+x.slope <- kb04.out$link@constants$MS[1]
+x.intercept <- kb04.out$link@constants$MS[2]
+
+(form.x.params <- KB04$pars$form.x %>%
+  rename(a.before = "discrimination",
+         b.before = "difficulty",
+         c.before = "asymptote") %>%
+  bind_cols(kb04.pars.out$group1 %>%
+              as.data.frame() %>%
+              setNames(c("a.after","b.after","c.after"))) %>%
+   mutate(item = seq(1:nrow(kb04.pars.out$group1)),
+          common = ifelse(item %in% data.frame(kb04.out$pars@common)[,1],
+                          1,0)) %>%
+   relocate(item, common, a.before, a.after, b.before, b.after, c.before, c.after)
+)
+
+form.x.params %>%
+  mutate(a.calc = a.before / x.slope,
+         b.calc = b.before * x.slope + x.intercept,
+         c.calc = c.before,
+         a.diff = a.before - a.after, # Difference between the params before and after scaling
+         b.diff = b.before - b.after,
+         c.diff = c.before - c.after,
+         a.calc.diff = a.calc - a.after,
+         b.calc.diff = b.calc - b.after,
+         c.calc.diff = c.calc - c.after) %>%
+  select(a.diff, b.diff, c.diff, a.calc.diff, b.calc.diff, c.calc.diff) %>%
+  summarise(a_differences = sum(a.diff != 0),
+            b_differences = sum(b.diff != 0),
+            c_differences = sum(c.diff != 0),
+            a_calc_diffs = sum(a.calc.diff != 0),
+            b_calc_diffs = sum(b.calc.diff != 0),
+            c_calc_diffs = sum(c.calc.diff != 0)) %>% 
+  t() %>% data.frame("N.items" = .)
+```
+
+Again, the first table shows a side-by-side comparison of parameters 'before' and 'after' scaling for each item. Looks like the `a`'s and `b`'s have changed, but `c`'s have not (as expected).
+
+The second table shows that:
+
+-   All (36) of the `a` parameters are different after scaling.
+-   All (36) of the `b` parameters are different after scaling.
+-   None of the `c` parameters are different after scaling.
+-   None of the calculated `a`, `b`, and `c` parameters are different than the `plink` scaled ones. Our calculated parameters using the "Mean/Sigma" values produce the same results.
+
+
+#### Vertical Scaling in Practice
+From this point, we can use the updated item parameters and linear scaling parameters for our vertical scale moving forward. This means:
+
+- All test-takers who take Form X will have abilities estimated with the new (scaled) Form X item parameters.
+- All test-takers who take Form Y will have abilities estimated with the Form Y item parameters
+- All new items for Form X will need to be calibrated to the original Form X scale (using existing Form X items as anchors), then transformed using the linear parameters (A = 1.176074; B = -0.504188).
+- All new items for Form Y will need to be calibrated to the Form Y scale (using existing Form Y items as anchors).
+
+
+### Simulate Data
+
+#### True (Latent) Abilities
+Now that we've confirmed the item parameter scaling results, let's simulate a sample of 1000 latent abilities for two groups and check the impact of scaling. We'll simulate with a normal distribution for both groups. 
+
+```{r}
+# 1. Simulate ability levels
+n_test_takers <- 1000
+
+# Group x is lower ability (this will be evident when creating response patterns, no need to change the distribution)
+set.seed(123)
+theta.x <- rnorm(n_test_takers)
+# Group y is higher ability
+set.seed(234)
+theta.y <- rnorm(n_test_takers)
+
+describe(theta.x) %>%
+  bind_rows(describe(theta.y)) %>%
+  as_tibble %>%
+  mutate(form = c("x","y")) %>%
+  relocate(form)
+```
+
+Here are descriptive statistics of simulated abilities for Group X and Group Y. Note that although the group means are the same, our vertical scaling will ultimately show that Group Y has a higher ability than Group X. Therefore we don't need to account for that mean difference here. This is because:
+
+- Forms X and Y were calibrated separately. 
+- The common items reflect that Form Y is more difficult than Form X.
+- Simulating responses based on latent abilities with the same distribution will result in Group X sims performing worse on common items than Group Y sims.
+- After placing Form X and Form Y on the same developmental scale, final ability estimates for Group X will be on average lower than Group Y.
+
+
+#### Response Patterns
+
+Now that we have an underlying distribution of latent abilities, we can simulate response patterns for these sims. The function `generate_responses` is designed to simulate item responses based on the 3pl IRT model. It calculates the probability of a sim with a given theta to get an item correct, then simulates a response for that item using the binomial distribution (rbinom). The probability $P_i(\theta)$ of a person with ability $\theta$ getting item $i$ correct, given the item's parameters $a_i$, $b_i$, and $c_i$ is as follows:
+
+$$
+P_i(\theta) = c_i + (1 - c_i) \frac{1}{1 + \exp(-a_i (\theta - b_i))}
+$$
+Where:
+
+- $a_i$ is the discrimination parameter for item $i$,
+- $b_i$ is the difficulty parameter for item $i$, and
+- $c_i$ is the guessing parameter for item $i$.
+
+Note that for Form X, we are simulating response patterns based on the *old* item parameters. Then to simulate abilites, we'll use the *new* item parameters.
+
+```{r}
+set.seed(345) # for rbinom
+
+generate_responses <- function(params, theta) {
+  a <- params$discrimination
+  b <- params$difficulty
+  c <- params$asymptote
+  n_items <- length(a)
+  responses <- matrix(0, nrow = length(theta), ncol = n_items)
+  
+  for (i in 1:length(theta)) {
+    for (j in 1:n_items) {
+      prob <- c[j] + (1 - c[j]) / (1 + exp(-a[j] * (theta[i] - b[j])))
+      responses[i, j] <- rbinom(1, 1, prob)
+    }
+  }
+  return(responses)
+}
+
+# Generate responses for both forms
+responses.x <- generate_responses(KB04$pars$form.x, theta.x)
+responses.y <- generate_responses(KB04$pars$form.y, theta.y)
+
+# Descriptive stats of sum scores
+describe(rowSums(responses.x)) %>% 
+  bind_rows(describe(rowSums(responses.y))) %>%
+  as_tibble() %>%
+  mutate(group = c("x","y")) %>%
+  relocate(group)
+```
+
+This table presents descriptive statistics of sum scores. Since we'll use MLE to estimate abilities with using IRT item parameters, take these with a grain of salt. 
+
+
+#### Estimate Ability
+Now let's estimate the abilities, standard error, and percentile rank for our test-takers. 
+```{r}
+x.ability.old <- est_abilities_parallel(responses.x
+                                        , as = KB04$pars$form.x$discrimination
+                                        , bs = KB04$pars$form.x$difficulty
+                                        , cs = KB04$pars$form.x$asymptote
+                                        ) %>%
+  mutate(pct_rank = percent_rank(ability_est))
+
+x.ability.new <- est_abilities_parallel(responses.x
+                                        , as = kb04.pars.out$group1[,1]
+                                        , bs = kb04.pars.out$group1[,2]
+                                        , cs = kb04.pars.out$group1[,3]
+                                        ) %>%
+  mutate(pct_rank = percent_rank(ability_est))
+
+y.ability <- est_abilities_parallel(responses.y
+                                    , as = kb04.pars.out$group2[,1]
+                                    , bs = kb04.pars.out$group2[,2]
+                                    , cs = kb04.pars.out$group2[,3]
+                                    ) %>%
+  mutate(pct_rank = percent_rank(ability_est))
+
+# Combine into single DF
+kb04.abilities <- x.ability.old %>%
+  mutate(group = "x.old", 
+         ability_true = theta.x) %>%
+  bind_rows(x.ability.new %>% 
+              mutate(group = "x.new", 
+         ability_true = theta.x)) %>%
+  bind_rows(y.ability %>%
+              mutate(group = "y", 
+         ability_true = theta.y)) %>%
+  relocate(ability_true) %>%
+  mutate(group = factor(group, levels = c("x.old","x.new","y")))
+
+lapply(list(kb04.abilities$ability_est[kb04.abilities$group=="x.old"],
+            kb04.abilities$ability_est[kb04.abilities$group=="x.new"],
+            kb04.abilities$ability_est[kb04.abilities$group=="y"]), 
+       describe) %>% 
+  bind_rows %>%
+  as.data.frame() %>%
+  mutate(group = c("x.old","x.new","y")) %>%
+  as_tibble %>%
+  relocate(group, n, mean, sd, min, max, range, median)
+```
+
+This table shows descriptive statistics for Groups X and Y:
+
+-   `x.old` are the simulated Form X response data, with the original Form X item parameters
+-   `x.new` are the simulated Form X response data, with the new (scaled) Form X item parameters
+-   `y` are the simulated Form Y response data, with the Form Y item parameters
+
+As you can see, the x.old and y groups have a similar distribution of scores, which makes sense. The abilities were simulated along a normal distribution. When we simulate response patterns based on normally distributed true abilities, we would expect to have similar estimated ability distributions. Once we rescaled the item parameters for Form X (x.new) and estimated abilities from the same response patterns as before, we can see that the distribution shifts: 
+
+- It's more spread out, which checks out, since the Scaling Summary section showed the SD of the b-parameters for Form X went from 1.099855 to 1.293511, and
+- It's shifted to the left, which also makes sense, since the mean of the b-parameters for Form X went from 0.810591 to 0.449127. 
+
+
+### Visualizations
+Now lets visualize our testing data, starting with score distributions. 
+
+#### Distributions{.tabset}
+Code to create plots...
+```{r}
+raw.est.plot <- data.frame(raw = rowSums(responses.x),
+           mle = kb04.abilities$ability_est[kb04.abilities$group=="x.old"],
+           group = "x.old") %>%
+    bind_rows(
+    data.frame(raw = rowSums(responses.x),
+               mle = kb04.abilities$ability_est[kb04.abilities$group=="x.new"],
+               group = "x.new")
+  ) %>%
+  bind_rows(
+    data.frame(raw = rowSums(responses.y),
+               mle = kb04.abilities$ability_est[kb04.abilities$group=="y"],
+               group = "y")
+  ) %>%
+  ggplot(., aes(x = raw, y = mle, color = group)) +
+  facet_wrap(~group) +
+  geom_point(alpha = 0.3, size = 1) +
+  labs(title = "Raw Scores v. Scaled MLE Estimated Ability by Group",
+       x = "Raw Score",
+       y = "Scaled Ability Estimate",
+       color = "Group") +
+  theme_clean() +
+  theme(legend.position.inside = c(0.95, 0.05),
+        legend.position = "inside",
+        legend.justification = c("right", "bottom"))  # Adjust justification
+
+ability.plot <- kb04.abilities %>%
+  filter(abs(ability_est) <= 6.0) %>%
+ggplot(., aes(x = ability_est, color = as.factor(group), fill = as.factor(group))) +
+  geom_density(alpha = 0.3) +  # Overlayed density plots with some transparency
+  labs(title = "Overlayed Density Plot of Ability Estimates by Group",
+       x = "Theta",
+       y = "Density",
+       color = "Group",
+       fill = "Group") +
+  scale_x_continuous(limits = c(-5, 5)) +
+  scale_y_continuous(limits = c(0, 0.6)) +
+  theme_clean() +
+    theme(legend.position.inside = c(0.05, 0.95),
+    legend.position = "inside",
+        legend.justification = c("left", "top"))  # Adjust justification
+  
+
+ability.pct.plot <- kb04.abilities %>%
+  ggplot(., aes(x = ability_est, y = pct_rank, color = group)) +
+  geom_line() +
+  scale_x_continuous(limits = c(-5,5)) + 
+  labs(title = "Ability and Percentile Rank by Group",
+       x = "Theta",
+       y = "Percentile Rank",
+       color = "Group") +
+  theme_clean() +
+  theme(legend.position.inside = c(0.05, 0.95),
+    legend.position = "inside",
+        legend.justification = c("left", "top"))  # Adjust justification
+  
+
+se.plot <- kb04.abilities %>%
+  filter(abs(ability_est) <= 6.0) %>%
+  ggplot(., aes(x = ability_est, y = ability_est_se, color = group)) +
+  geom_jitter(alpha = 0.3) + 
+  geom_point(alpha = 0.3, size = 1) +
+  scale_x_continuous(limits = c(-5, 5)) +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(title = "SE of Ability Estimate by Group",
+     x = "Theta",
+     y = "Standard Error (SE)",
+     color = "Group",
+     fill = "Group") +
+  theme_clean() +
+  theme(legend.position.inside = c(0.05, 0.95),
+    legend.position = "inside",
+        legend.justification = c("left", "top"))  # Adjust justification
+
+```
+
+##### Raw and Scaled MLE 
+```{r}
+print(raw.est.plot)
+```
+
+As we can see, there is a similar relationship between Raw Score and Scaled Ability Estimate for both groups.
+
+
+##### Ability Density
+```{r}
+suppressWarnings(print(ability.plot))
+```
+
+Looking at the ability density, we can see that `x.old` and `y` have similar distributions, but after vertical scaling, the new Group X scores are more spread and shifted left.
+
+##### Percentile Rank
+```{r}
+suppressWarnings(print(ability.pct.plot))
+```
+
+##### Standard Error
+```{r}
+suppressWarnings(print(se.plot))
+```
+
+#### Density, Info, and SE{.tabset}
+
+Code to create plots...
+```{r echo=FALSE}
+# Create test information dataframe for plotting
+kb04.ti <- test_info(thetas = seq(-4,4,.1),
+          a = KB04$pars$form.x$discrimination, # Original X
+          b = KB04$pars$form.x$difficulty,
+          c = KB04$pars$form.x$asymptote
+          ) %>%
+  rename(x.old.info = "info", x.old.se = "se") %>%
+  bind_cols(
+    test_info(thetas = seq(-4,4,.1),
+          a = kb04.pars.out$group1[,1], # Scaled X
+          b = kb04.pars.out$group1[,2],
+          c = kb04.pars.out$group1[,3]
+          ) %>%
+      rename(x.new.info = "info", x.new.se = "se") %>%
+      select(-theta)
+  ) %>% 
+  bind_cols(
+    test_info(thetas = seq(-4,4,.1),
+          a = kb04.pars.out$group2[,1], # Y
+          b = kb04.pars.out$group2[,2],
+          c = kb04.pars.out$group2[,3]
+          ) %>%
+      rename(y.info = "info", y.se = "se") %>%
+      select(-theta)
+  )
+
+# Create the combined plot
+combined_plot.x.old <- kb04.abilities %>%
+  filter(group == "x.old") %>%
+  ggplot(aes(x = ability_est)) +
+  # Density plot
+  geom_density(alpha = 0.1, fill = "red", color = "red") +
+  # Test information function
+  geom_line(data = kb04.ti, aes(x = theta, 
+                           y = x.old.info / max(x.old.info) * max(density(kb04.abilities$ability_est[kb04.abilities$group == "x.old"])$y)), 
+            color = "purple", linewidth = 0.5) +
+  # Standard error
+  geom_line(data = kb04.ti, aes(x = theta, 
+                           y = x.old.se / max(x.old.se) * max(density(kb04.abilities$ability_est[kb04.abilities$group == "x.old"])$y)), 
+            color = "orange3", linewidth = 0.5) +
+  # Labels and theme
+  labs(title = "Original Form X Ability Estimate Density Plot with Test Info and SE",
+       x = "Theta",
+       y = "Density of Ability Estimates") +
+  theme_clean() +
+  scale_x_continuous(limits = c(-6,6)) +
+  # Add a secondary y-axis for Test Information and SE
+  scale_y_continuous(
+    limits = c(0, 0.6),
+    sec.axis = sec_axis(~ . * 10, 
+                        name = "Test Information / Standard Error")
+  ) +
+  theme(plot.title = element_text(size = 12))  # Adjust title size
+
+
+# Create the combined plot
+combined_plot.x.new <- kb04.abilities %>%
+  filter(group == "x.new") %>%
+  ggplot(aes(x = ability_est)) +
+  # Density plot
+  geom_density(alpha = 0.1, fill = "green", color = "green") +
+  # Test information function
+  geom_line(data = kb04.ti, aes(x = theta, 
+                           y = x.new.info / max(x.new.info) * max(density(kb04.abilities$ability_est[kb04.abilities$group == "x.new"])$y)), 
+            color = "purple", linewidth = 0.5) +
+  # Standard error
+  geom_line(data = kb04.ti, aes(x = theta, 
+                           y = x.new.se / max(x.new.se) * max(density(kb04.abilities$ability_est[kb04.abilities$group == "x.new"])$y)), 
+            color = "orange3", linewidth = 0.5) +
+  # Labels and theme
+  labs(title = "Scaled Form X Ability Estimate Density Plot with Test Info and SE",
+       x = "Theta",
+       y = "Density of Ability Estimates") +
+  theme_clean() +
+  scale_x_continuous(limits = c(-6,6)) +
+  # Add a secondary y-axis for Test Information and SE
+  scale_y_continuous(
+    limits = c(0, 0.6),
+    sec.axis = sec_axis(~ . * 10, 
+                        name = "Test Information / Standard Error")
+  ) +
+  theme(plot.title = element_text(size = 12))  # Adjust title size
+
+combined_plot.y <- kb04.abilities %>%
+  filter(group == "y") %>%
+  ggplot(aes(x = ability_est)) +
+  # Density plot
+  geom_density(alpha = 0.1, fill = "blue", color = "blue") +
+  # Test information function
+  geom_line(data = kb04.ti, aes(x = theta, 
+                           y = y.info / max(y.info) * max(density(kb04.abilities$ability_est[kb04.abilities$group == "y"])$y)), 
+            color = "purple", linewidth = 0.5) +
+  # Standard error
+  geom_line(data = kb04.ti, aes(x = theta, y = 
+                             y.se / max(y.se) * max(density(kb04.abilities$ability_est[kb04.abilities$group == "y"])$y)), 
+            color = "orange3", linewidth = 0.5) +
+  # Labels and theme
+  labs(title = "Form Y Ability Estimate Density Plot with Test Info and SE", size = 2) + 
+  labs(x = "Theta",
+       y = "Density of Ability Estimates") +
+  theme_clean() +
+  scale_x_continuous(limits = c(-6,6)) +
+  # Add a secondary y-axis for Test Information and SE
+  scale_y_continuous(
+    limits = c(0, 0.6),
+    sec.axis = sec_axis(~ . * 10, 
+                        name = "Test Information / Standard Error")
+  ) +
+  theme(plot.title = element_text(size = 12))  # Adjust title size
+```
+
+##### x.old
+```{r}
+suppressWarnings(print(combined_plot.x.old))
+```
+Note: the purple line represents Test Information, and the orange line represents the Test Standard Error.
+
+##### x.new
+```{r}
+suppressWarnings(print(combined_plot.x.new))
+```
+Note: the purple line represents Test Information, and the orange line represents the Test Standard Error.
+
+##### y
+```{r}
+suppressWarnings(print(combined_plot.y))
+```
+Note: the purple line represents Test Information, and the orange line represents the Test Standard Error.
+
+
+#### Score Reporting
+
+Now that we've performed vertical scaling for our sample, and estimated abilities for our test takers, we should convert the ability estimates (in logits) to some other scale.. This process is called  **scaling** and it helps score interpretation and tracking for our audience. 
+
+Let's look at the descriptive statistics of abilities of our two groups.
+
+```{r}
+psych::describe(x.ability.new$ability_est) %>% select(n, mean, sd, median, min, max, range) %>% 
+  bind_rows(
+    psych::describe(y.ability$ability_est) %>% select(n, mean, sd, median, min, max, range)
+    ) %>% as_tibble %>%
+  mutate(group = c("x.new","y")) %>% relocate(group)
+```
+
+We have quite the range here, with some extreme values for the x.new group (min = -12.11), and even for the y group (min = -5.78). There are both linear and non-linear methods we could employ to convert these ability estimates to another scale. Let's look at linear methods first.
+
+
+##### Scaling Option 1: Linear based on Limits
+
+Let's assume we want our transformed scale to have the following limits:
+
+- Min = 200
+- Max = 800
+
+In this scaling option, we would use the min and max values from our entire dataset (across all forms), and basically draw a line between the min (-12.11, 200) and max (4.71, 800) and all scores in between would be linearly transformed to that scale. Let's do that:
+
+The formula for this is:
+$$S = A \cdot \theta + B$$
+Where:
+
+- $S$ is the Scaled score
+- ${\theta}$ is the latent ability estimate
+- $A$ is the scaling factor
+- $B$ is the intercept
+
+And the formula for computing A and B:
+$$A = \frac{S_{\text{max}} - S_{\text{min}}}{\theta_{\text{max}} - \theta_{\text{min}}}$$
+$$B = S_{\text{min}} - A \cdot \theta_{\text{min}}$$
+
+Let's compute that and create a scaled.scores dataframe.
+```{r}
+scaled.scores <- kb04.abilities %>%
+  filter(group %in% c("x.new","y"))
+
+A <- (800 - 200) / (max(scaled.scores$ability_est) - min(scaled.scores$ability_est))
+B <- 200 - A * (min(scaled.scores$ability_est))
+
+scaled.scores <- scaled.scores %>%
+  mutate(scale_linear = ceiling(A * ability_est + B))
+
+# Plot
+scaled.scores %>%
+  ggplot(., aes(x = ability_est, y = scale_linear)) +
+  geom_point(alpha = 0.2, color = "blue3") +
+  labs(title = "Linear Scaling using Scale Limits",
+       x = "Theta",
+       y = "Scaled Score") +
+  theme_clean()
+```
+
+This plot presents the linear scaling results for all sims (Groups X and Y). It also highlights the outliers at the low end of the theta scale, in that values below -5 cover scaled scores of about 200 to 450 or so. In that sense, this method kind of wastes a large portion of our scale on some extreme outliers, and the scaled scores in the middle distribution are relatively narrow. Let's break up our sample into quintiles and look at the scale range for each group.
+
+```{r}
+scale_breakdown <- function(df, varb) {
+  scaling <- function(df, varb) {
+    df %>%
+      summarise(
+        scale_min = min({{varb}}, na.rm = TRUE),
+        scale_max = max({{varb}}, na.rm = TRUE),
+        scale_range = scale_max - scale_min
+      )
+  }
+  
+  result <- bind_rows(
+    df %>% scaling({{varb}}),
+    df %>% filter(pct_rank < 0.20) %>% scaling({{varb}}),
+    df %>% filter(pct_rank >= 0.20 & pct_rank < 0.40) %>% scaling({{varb}}),
+    df %>% filter(pct_rank >= 0.40 & pct_rank < 0.60) %>% scaling({{varb}}),
+    df %>% filter(pct_rank >= 0.60 & pct_rank < 0.80) %>% scaling({{varb}}),
+    df %>% filter(pct_rank >= 0.80) %>% scaling({{varb}})
+  ) %>%
+  mutate(group = c("Total", "0%-20%", "20%-40%", "40%-60%", "60%-80%", "80%-100%")) %>%
+  relocate(group)
+  
+  return(result)
+}
+
+scaled.scores %>% scale_breakdown(scale_linear)
+```
+
+This shows that the scale range for the bottom 20% of our sample spans 398 scaled points (nearly 2/3 of our range!). Not only is that a lot of dedicated scale range for a mere fifth of our sample, but examining our Info and SE plots, we have more error than information below about -1.5 logits, meaning we don't have much score precision for MLE estimates in that range anyway. Conversely, the middle fifth of our sims (40% - 60%) is separated by a mere 38 points. That's not much separation for a group of test-takers for which we do have a lot of measurement precision. 
+
+Let's consider another linear approach provides better separation in the middle of the distribution.
+
+
+##### Scaling Option 2: Linear: Piecewise with Limits
+
+One thing we could do to address this is create a piecewise linear scale, where we select min and max Theta values to derive this scale, and any scores below or above (respectively) those thresholds are given the low or high score. For instance, our scale could be:
+
+- If $\theta <= -3.0$, then $S = 200$
+- If $\theta > -3.0$ and $\theta < 3.0$, then $S = f(\theta)$
+- If $\theta > 3.0$, then $S = 800$
+
+Here's how that would look if we set our min(theta) and max(theta) to -4 and 4, respectively.
+
+```{r}
+A.piece <- (800 - 200) / (4 - (-4))
+B.piece <- 200 - A.piece * (-4)
+
+scaled.scores <- scaled.scores %>%
+  mutate(scale_linear_piece = ceiling(A.piece * ability_est + B.piece),
+         scale_linear_piece = ifelse(scale_linear_piece < 200, 200, 
+                                     ifelse(scale_linear_piece > 800, 800, scale_linear_piece)))
+
+scaled.scores %>%
+  ggplot(aes(x = ability_est)) +
+  geom_point(aes(y = scale_linear, color = "Limits"), alpha = 0.2) +
+  geom_point(aes(y = scale_linear_piece, color = "Limits, Piecewise"), alpha = 0.2) +
+  scale_color_manual(
+    name = "Method",
+    values = c("Limits" = "blue3", "Limits, Piecewise" = "green3"),
+    labels = c("Limits", "Limits, Piecewise")
+  ) +
+  labs(
+    title = "Linear Scaling Results",
+    x = "Theta",
+    y = "Scaled Score"
+  ) +
+  theme_clean() +
+  theme(legend.position.inside = c(0.05, 0.95),
+        legend.position = "inside",
+        legend.justification = c("left", "top"))  # Adjust justification
+
+scaled.scores %>% scale_breakdown(scale_linear_piece)
+```
+
+That looks a lot more reasonable, with the middle quintiles each having a spread of around 80 to 100 points. We could take this a step further and set the theta limits to something even more narrow (e.g., c(-3,3)), but we'll leave it be for now. Let's try one more linear scaling option.
+
+
+##### Scaling Option 3: Linear based on a Distribution
+
+Another option is a transformation based using the mean and SD of our normative (base sample) scores. Let's assume we want our transformed scale to have the following features:
+
+- Mean = 500
+- SD = 100
+
+The formula for this is:
+$$S = \frac{\sigma(S)}{\sigma(\theta)} \theta + \left[\mu(S) - \frac{\sigma(S)}{\sigma(\theta)} \mu(\theta)\right]$$
+Where: 
+
+  - $S$ : Scaled score
+  - $\theta$ : Latent ability estimate
+  - $\mu(S)$ : Desired mean of the scaled scores
+  - $\sigma(S)$ : Desired standard deviation of the scaled scores
+  - $\mu(\theta)$ : Mean of the latent ability estimates
+  - $\sigma(\theta)$ : Standard deviation of the latent ability estimates
+
+
+So let's implement this and take a look at how that compares to our scaling based on using scale limits
+```{r}
+sd.S <- 100
+sd.Theta <- sd(scaled.scores$ability_est)
+mean.S <- 500 
+mean.Theta <- mean(scaled.scores$ability_est)
+
+scaled.scores <- scaled.scores %>%
+  mutate(scale_linear_MS = (sd.S / sd.Theta) * ability_est + (mean.S - (sd.S / sd.Theta) * mean.Theta))
+
+scaled.scores %>%
+  ggplot(aes(x = ability_est)) +
+   geom_point(aes(y = scale_linear, color = "Limits"), alpha = 0.2) +
+  geom_point(aes(y = scale_linear_piece, color = "Limits, Piecewise"), alpha = 0.2) +
+  geom_point(aes(y = scale_linear_MS, color = "Distribution"), alpha = 0.2) +
+  scale_color_manual(
+    name = "Method",
+    values = c("Limits" = "blue3", "Limits, Piecewise" = "green3", "Distribution" = "orange3"),
+    labels = c("Distribution", "Limits", "Limits, Piecewise")
+  ) +
+  labs(
+    title = "Linear Scaling Results",
+    x = "Theta",
+    y = "Scaled Score"
+  ) +
+  theme_clean() +
+  theme(legend.position.inside = c(0.95, 0.05), 
+        legend.position = "inside",
+        legend.justification = c("right", "bottom"))  # Adjust justification
+```
+
+```{r}
+psych::describe(scaled.scores$scale_linear_MS)
+```
+
+As we can see, while this new scale spreads out the scaled scores more, it also extends well below the 200 point scale limit we identified earlier. Perhaps we're comfortable offering scores of -269 to test-takers, but probably not. Let's take a look at our quintiles.
+
+```{r}
+scaled.scores %>% scale_breakdown(scale_linear_MS)
+```
+
+Again, the range for the bottom 20% is enormous (728), and that of our middle group is still comparatively narrow. 
+
+The linear piecewise scaling approach seems to give us the best spread for the middle quintiles, though the downside is we artificially limit (remove) variability beyond the bounds we set (e.g., everyone below -4 logits has the same scaled score)
+
+Now let's consider one non-linear transformation and see how it compares to the linear scaling. 
+
+##### Scaling Option 4: Non-Linear Logistic
+
+There are many different non-linear approaches we could take, but let's just do take a logistic approach. Here's one such transformation we could use: 
+
+$$S = \frac{S_{\text{max}} - S_{\text{min}}}{1 + e^{-a(\theta - \theta_0)}} + S_{\text{min}}$$
+
+Where $\theta_0$ is the midpoint of the latent ability scale, and $a$ is a parameter that controls the steepness of the logistic curve. Let's just assume $a = 1$ and leave it out of our calculation.
+
+
+```{r}
+# Median of the theta
+mid.Theta <- median(scaled.scores$ability_est)
+
+# Add a scaled score based on logistic 
+scaled.scores <- scaled.scores %>%
+  mutate(scale_nl_logistic = (800 - 200)/(1 + exp(-1 *(ability_est - mid.Theta))) + 200)
+
+scaled.scores %>%
+  ggplot(aes(x = ability_est)) +
+   geom_point(aes(y = scale_linear, color = "L: Limits"), alpha = 0.2) +
+  geom_point(aes(y = scale_linear_piece, color = "L: Limits, Piecewise"), alpha = 0.2) +
+  geom_point(aes(y = scale_linear_MS, color = "L: Distribution"), alpha = 0.2) +
+  geom_point(aes(y = scale_nl_logistic, color = "NL: Logistic"), alpha = 0.2) +
+  scale_color_manual(
+    name = "Method",
+    values = c("L: Limits" = "blue3", "L: Limits, Piecewise" = "green3", "L: Distribution" = "orange3",
+               "NL: Logistic" = "red3"),
+    labels = c("L: Distribution", "L: Limits", "L: Limits, Piecewise",
+               "NL: Logistic")
+  ) +
+  labs(
+    title = "Scaling Results",
+    x = "Theta",
+    y = "Scaled Score"
+  ) +
+  theme_clean() +
+    theme(legend.position.inside = c(0.95, 0.05),
+        legend.position = "inside",
+        legend.justification = c("right", "bottom"))  # Adjust justification
+```
+
+```{r}
+scaled.scores %>% scale_breakdown(scale_nl_logistic)
+```
+
+That gives us a much more even distribution of scale ranges for each of our quintiles. However, we should note some downsides to using non-linear transformations of scaled scores, especially when it comes to tracking progress over time.
+
+1. Loss of Interpretability: 
+    - Non-linear transformations can make the interpretation of scores more complex. For example, with a linear scale, a unit increase in the score has a consistent meaning across the entire range of the scale. In contrast, with a non-linear scale, the meaning of a unit increase can vary depending on where it occurs on the scale. This variability can make it difficult for stakeholders to understand and interpret changes in scores over time.
+2. Inconsistency in Growth Measurement
+    - Non-linear transformations can distort the measurement of growth or progress. For instance, in educational assessments, we often want to measure how much a student's ability has increased from one point in time to another. If the scale is non-linear, the amount of progress required to move from one score to another can vary, making it difficult to compare growth consistently across different parts of the scale.
+3. Difficulty in Setting and Comparing Benchmarks
+    - Setting benchmarks or cut scores (e.g., for proficiency levels) becomes more challenging with non-linear scales. Benchmarks set on a non-linear scale may not correspond to intuitive or easily understood levels of ability or performance. Additionally, comparing benchmarks across different groups or time periods can be problematic if the non-linear transformation is not consistent across the entire scale.
+4. Complexity in Communication
+    - Communicating results to stakeholders, such as educators, students, parents, or policymakers, can become more difficult with non-linear scales. Stakeholders may have a harder time understanding what the scores mean and how they relate to each other, which can undermine confidence in the assessment system.
+5. Issues with Longitudinal Comparability
+    - Longitudinal studies that track progress over multiple years require consistent and comparable scales. Non-linear transformations can introduce discrepancies that complicate the analysis of long-term trends. This inconsistency can lead to misinterpretations of data and flawed conclusions about progress or effectiveness of interventions.
+6. Potential for Misleading Inferences
+    - Non-linear scales can sometimes lead to misleading inferences about relative performance. For example, two students with the same score difference on a non-linear scale might have very different actual performance differences depending on where they fall on the scale. This can affect decisions based on these scores, such as resource allocation or instructional adjustments.
+
+
+
+## Example 2: Six Groups
+
+### The Dataset
+**TK07 / Tong - Kolen (2007)**: This dataset includes unidimensional three parameter logistic model (3PL) item parameter estimates from simulated dataset based on items from the 1992 Iowa Test of Basic Skills vocabulary test. The data are for six groups (grades 3-8) with varying numbers of common items between adjacent grades. We can load the `TK07` dataset from `plink`. 
+
+Let's load the dataset, and see how many items we're working with.
+```{r}
+TK07 <- TK07
+sapply(TK07$pars, nrow)
+sapply(TK07$common, nrow)
+```
+So we've got one form for each of 6 grades (g3-g8), with adjacent forms having common items. For instance, this output shows there are 26 items in g3 and 34 items in g4, and those two grades have 13 items in common. 
+
+
+### Vertical Scaling
+Let's perform vertical scaling using this data. Here are the settings we'll use for this example:
+1. We'll rescale using the Mean/Sigma method, `"MS"`.
+2. The base group this time will be group 1 (Grade 3)
+3. We'll use the scaling constant of 1.7, since these items were also calibrated using BILOG-MG.
+4. We won't throw out any common items this time.
+
+```{r}
+# Get the # items items in each 
+tk07.n.items <- list(nrow(TK07$pars$grade3),
+                     nrow(TK07$pars$grade4),
+                     nrow(TK07$pars$grade5),
+                     nrow(TK07$pars$grade6),
+                     nrow(TK07$pars$grade7),
+                     nrow(TK07$pars$grade8))
+
+# Create irt.pars object with six groups (all dichotomous items)
+tk07.pm <- lapply(tk07.n.items, as.poly.mod)
+
+# Number of response categories for each item in each dataset (all )
+tk07.cat <- lapply(tk07.n.items, function(x) rep(2, x))
+
+tk07.irt.pars <- as.irt.pars(# Turn values into an `irt.pars` object
+  x = TK07$pars,             # An object of class `irt.pars` with multiple groups
+  common = TK07$common,      # Matrix of common items between the groups
+  cat = tk07.cat,            # Number of response categories (2) for each item in the dataset
+  poly.mod = tk07.pm,        # Lists the poly.mod objects that defines the models for each item
+  grp.names = paste0("grade",3:8)
+                             )
+
+# rescale the item parameters using the Mean/Sigma linking constants,
+tk07.out <- plink(tk07.irt.pars, 
+             rescale = "MS", # Transform parameters to the base scale, using Mean/Sigma (Mean/SD) method
+             base.grp = 1,   # The base scale is Group 1 (default; Grade 3)
+             D = 1.7)        # Scaling constant to transform the logistic model; D=1.7 ~~ normal ogive model
+
+tk07.pars.out <- link.pars(tk07.out)
+```
+
+We won't examine the scaling results this time, since we'll have 10 tables describing the linear scaling results for all adjacent grade pairs. 
+
+### Simulate Data
+Now, let's simulate data as if we are tracking the same group of 1000 students longitudinally. 
+
+#### True (Latent) Abilities
+To simulate longitudinal data, we'll start by estimating g3 ability, apply a base growth rate, then mean center the abilities for each grade. Since we're working with 6 groups, we'll put these abilities in a dataframe `tk07.true.abilities` to help us keep track of them.
+
+```{r}
+# 1. Simulate ability levels
+n_test_takers <- 1000
+set.seed(012)
+
+# Simulate initial abilities
+tk07_initial_abilities <- rnorm(n_test_takers)
+
+# Select a growth rate, and adjust for variability by starting ability (lower ability students grow a little less rapidly, and higher ability students grow a little more rapidly)
+base_growth_rate <- 0.3  # Average growth per time period
+
+# Create abilities dataframe
+tk07.true.abilities <- data.frame(g3 = tk07_initial_abilities) %>%
+  # Create a dataframe of jitter to add to longitudinal data
+  mutate( 
+    # Simulate growth, including "0.05 * gX" to represent that higher ability students make greater gains.
+    g4 = base_growth_rate + g3 * 1.05,
+    g5 = base_growth_rate + g4 * 1.05,
+    g6 = base_growth_rate + g5 * 1.05,
+    g7 = base_growth_rate + g6 * 1.05,
+    g8 = base_growth_rate + g7 * 1.05,
+    #Then re-center those scores about zero, since we're simulating response patterns for separate tests, with means of about 0 anyway. When we simulate response patterns and apply scaling, the growth will be evident.
+    g4 = g4 - mean(g4), 
+    g5 = g5 - mean(g5),
+    g6 = g6 - mean(g6),
+    g7 = g7 - mean(g7),
+    g8 = g8 - mean(g8),
+    student = 1:n())
+
+# And visualize the growth 
+tk07.true.abilities %>%
+  pivot_longer(cols = c(g3, g4, g5, g6, g7, g8),
+               names_to = "grade",
+               values_to = "ability") %>%
+  arrange(ability) %>%
+  ggplot(., aes(x = grade, y = ability, group = student, color = as.factor(student))) +
+    geom_line(alpha = 0.2) +
+    theme_clean() +
+    theme(legend.position = "none")
+
+tk07.true.abilities %>%
+  select(-student) %>%
+  sapply(psych::describe) %>%
+  t() 
+```
+
+Here are the simulated abilities for our sample of sims over time. As you can see, the growth trajectories are just straight lines (given the flat growth rate), which is fine, since our process for simulating response patterns will introduce some variabilty. Right now, each timepoint has a mean of about 0, yet the ability variability increases slightly over time.
+
+#### Response Patterns
+Now let's generate response patterns for each timepoint, using the same method as before, based on the original item parameters. 
+```{r}
+set.seed(678) # for rbinom
+
+# Generate responses for all forms
+tk07.responses <- list(
+  "responses.3" = generate_responses(TK07$pars$grade3, tk07.true.abilities$g3),
+  "responses.4" = generate_responses(TK07$pars$grade4, tk07.true.abilities$g4),
+  "responses.5" = generate_responses(TK07$pars$grade5, tk07.true.abilities$g5),
+  "responses.6" = generate_responses(TK07$pars$grade6, tk07.true.abilities$g6),
+  "responses.7" = generate_responses(TK07$pars$grade7, tk07.true.abilities$g7),
+  "responses.8" = generate_responses(TK07$pars$grade8, tk07.true.abilities$g8)
+)
+
+lapply(tk07.responses, function(x) {psych::describe(rowSums(x))}) %>%
+  bind_rows %>%
+  as_tibble() %>%
+  mutate(timepoint = c("g3","g4","g5","g6","g7","g8")) %>%
+  relocate(timepoint)
+```
+Again, take these results with a grain of salt. But one thing of note is that, just like our latent abilities, the SD of raw scores increases over time (as intended).
+
+#### Estimate Ability
+Now let's estimate the abilities, standard error, and percentile rank for our test-takers. 
+```{r}
+tk07.abilities <- list(
+    "g3" = est_abilities_parallel(tk07.responses$responses.3 %>% data.frame,
+                                as = tk07.pars.out$grade3[,1],
+                                bs = tk07.pars.out$grade3[,2],
+                                cs = tk07.pars.out$grade3[,3]
+                                ) %>% 
+    mutate(timepoint = "g3", 
+           ability_true = tk07.true.abilities$g3),
+  
+    "g4" = est_abilities_parallel(tk07.responses$responses.4,
+                                as = tk07.pars.out$grade4[,1],
+                                bs = tk07.pars.out$grade4[,2],
+                                cs = tk07.pars.out$grade4[,3]
+                                ) %>% 
+    mutate(timepoint = "g4", 
+           ability_true = tk07.true.abilities$g4),
+  
+    "g5" = est_abilities_parallel(tk07.responses$responses.5,
+                                as = tk07.pars.out$grade5[,1],
+                                bs = tk07.pars.out$grade5[,2],
+                                cs = tk07.pars.out$grade5[,3]
+                                ) %>% 
+    mutate(timepoint = "g5", 
+           ability_true = tk07.true.abilities$g5),
+  
+    "g6" = est_abilities_parallel(tk07.responses$responses.6,
+                                as = tk07.pars.out$grade6[,1],
+                                bs = tk07.pars.out$grade6[,2],
+                                cs = tk07.pars.out$grade6[,3]
+                                ) %>% 
+    mutate(timepoint = "g6", 
+           ability_true = tk07.true.abilities$g6),
+  
+    "g7" = est_abilities_parallel(tk07.responses$responses.7,
+                                as = tk07.pars.out$grade7[,1],
+                                bs = tk07.pars.out$grade7[,2],
+                                cs = tk07.pars.out$grade7[,3]
+                                ) %>% 
+    mutate(timepoint = "g7", 
+           ability_true = tk07.true.abilities$g7),
+  
+    "g8" = est_abilities_parallel(tk07.responses$responses.8,
+                                as = tk07.pars.out$grade8[,1],
+                                bs = tk07.pars.out$grade8[,2],
+                                cs = tk07.pars.out$grade8[,3]
+                                ) %>% 
+    mutate(timepoint = "g8", 
+           ability_true = tk07.true.abilities$g8)
+) %>% bind_rows
+
+# And the abilities if we used the old parameters
+tk07.abilities.old <- list(
+    "g3" = est_abilities_parallel(tk07.responses$responses.3 %>% data.frame,
+                                as = TK07$pars$grade3[,1],
+                                bs = TK07$pars$grade3[,2],
+                                cs = TK07$pars$grade3[,3]
+                                ) %>% 
+    mutate(timepoint = "g3", 
+           ability_true = tk07.true.abilities$g3),
+  
+    "g4" = est_abilities_parallel(tk07.responses$responses.4,
+                                as = TK07$pars$grade4[,1],
+                                bs = TK07$pars$grade4[,2],
+                                cs = TK07$pars$grade4[,3]
+                                ) %>% 
+    mutate(timepoint = "g4", 
+           ability_true = tk07.true.abilities$g4),
+  
+    "g5" = est_abilities_parallel(tk07.responses$responses.5,
+                                as = TK07$pars$grade5[,1],
+                                bs = TK07$pars$grade5[,2],
+                                cs = TK07$pars$grade5[,3]
+                                ) %>% 
+    mutate(timepoint = "g5", 
+           ability_true = tk07.true.abilities$g5),
+  
+    "g6" = est_abilities_parallel(tk07.responses$responses.6,
+                                as = TK07$pars$grade6[,1],
+                                bs = TK07$pars$grade6[,2],
+                                cs = TK07$pars$grade6[,3]
+                                ) %>% 
+    mutate(timepoint = "g6", 
+           ability_true = tk07.true.abilities$g6),
+  
+    "g7" = est_abilities_parallel(tk07.responses$responses.7,
+                                as = TK07$pars$grade7[,1],
+                                bs = TK07$pars$grade7[,2],
+                                cs = TK07$pars$grade7[,3]
+                                ) %>% 
+    mutate(timepoint = "g7", 
+           ability_true = tk07.true.abilities$g7),
+  
+    "g8" = est_abilities_parallel(tk07.responses$responses.8,
+                                as = TK07$pars$grade8[,1],
+                                bs = TK07$pars$grade8[,2],
+                                cs = TK07$pars$grade8[,3]
+                                ) %>% 
+    mutate(timepoint = "g8", 
+           ability_true = tk07.true.abilities$g8)
+) %>% bind_rows
+
+# Add Percentile Rank, raw score, and percent scores
+tk07.abilities <- tk07.abilities %>%
+  group_by(timepoint) %>%
+  mutate(pct_rank = percent_rank(ability_est)) %>%
+  ungroup %>%
+  mutate(pct_rank_overall = percent_rank(ability_est),
+         student = rep(1:1000,6)) %>%
+  left_join(lapply(TK07$pars, nrow) %>%  # Pull out # of items for each form
+              unlist %>% 
+              data.frame("n_items" = .) %>%
+              rownames_to_column("timepoint") %>% 
+              mutate(timepoint = gsub("grade","g",timepoint) %>% as.character,
+                     n_items = as.numeric(n_items)),
+            by = "timepoint") %>%
+  mutate(raw_score = unlist(lapply(tk07.responses, rowSums)),
+         pct_score = raw_score / n_items) %>%
+  select(-n_items)
+
+tk07.abilities.old <- tk07.abilities.old %>%
+  group_by(timepoint) %>%
+  mutate(pct_rank = percent_rank(ability_est)) %>%
+  ungroup %>%
+  mutate(pct_rank_overall = percent_rank(ability_est),
+         student = rep(1:1000,6)) %>%
+  mutate(raw_score = unlist(lapply(tk07.responses, rowSums)))
+
+# Descriptive Stats
+tk07.abilities %>% 
+  group_by(timepoint) %>% 
+  summarise(
+    n = n(),
+    mean = mean(ability_est),
+    sd = sd(ability_est),
+    min = min(ability_est),
+    max = max(ability_est), 
+    range = max - min,
+    median = median(ability_est))
+```
+
+These descriptive statistics are now on our vertical scale, and more interpretable. As we can see, our mean (and median) incraeses over time, as does the SD of scores (for the most part).
+
+
+
+### Visualizations
+#### Distributions{.tabset}
+
+Code to create distribution plots...
+
+```{r}
+tk07.raw.mle.plot <- tk07.abilities %>%
+  ggplot(., aes(x = pct_score, y = ability_est, color = timepoint)) +
+  facet_wrap(~timepoint) +
+  geom_point(alpha = 0.3, size = 1) +
+  labs(title = "Raw Scores v. Scaled MLE Estimated Ability by Timepoint",
+       x = "Percent Score",
+       y = "Scaled Ability Estimate",
+       color = "Timepoint") +
+  theme_clean() +
+  theme(legend.position = "none")
+
+tk07.ability.plot <- tk07.abilities %>%
+  filter(abs(ability_est) <= 6.0) %>%
+ggplot(., aes(x = ability_est, color = as.factor(timepoint), fill = as.factor(timepoint))) +
+  geom_density(alpha = 0.1) +  # Overlayed density plots with some transparency
+  labs(title = "Overlayed Density Plot of Ability Estimates by Group",
+       x = "Theta",
+       y = "Density",
+       color = "Timepoint",
+       fill = "Timepoint") +
+  scale_x_continuous(limits = c(-6, 6)) +
+  scale_y_continuous(limits = c(0, 0.6)) +
+  theme_clean()
+
+tk07.ability.pct.plot <- tk07.abilities %>%
+  ggplot(., aes(x = ability_est, y = pct_rank, color = timepoint)) +
+  geom_line() +
+  scale_x_continuous(limits = c(-5,5)) + 
+  labs(title = "Ability and Percentile Rank by Timepoint",
+       x = "Theta",
+       y = "Percentile Rank",
+       color = "Timepoint") +
+  theme_clean() +
+  theme(legend.position.inside = c(0.05, 0.95),
+    legend.position = "inside",
+        legend.justification = c("left", "top"))  # Adjust justification
+
+tk07.se.plot <- tk07.abilities %>%
+  filter(abs(ability_est) <= 6.0) %>%
+  ggplot(., aes(x = ability_est, y = ability_est_se, color = timepoint)) +
+  geom_jitter(alpha = 0.2) + 
+  geom_point(alpha = 0.2, size = 1) +
+  scale_x_continuous(limits = c(-6, 6)) +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(title = "SE of Ability Estimate by Group",
+     x = "Theta",
+     y = "Standard Error (SE)",
+     color = "Timepoint",
+     fill = "Timepoint") +
+  theme_clean()
+```
+
+##### Raw and Scaled MLE
+```{r}
+print(tk07.raw.mle.plot)
+```
+
+As we can see, there is a similar relationship between Score and Scaled Ability Estimate for all groups. Note that each form has different number of items, so I've used `pct_score` instead of `raw_score` for comparability.
+
+##### Ability Density
+```{r}
+suppressWarnings(print(tk07.ability.plot))
+```
+
+Based the ability estimates from vertical scaling, we can see the the ability distributions increase (and becomre more spread) across grade.
+
+##### Percentile Rank
+```{r}
+suppressWarnings(print(tk07.ability.pct.plot))
+```
+
+
+##### Standard Error
+```{r}
+suppressWarnings(print(tk07.se.plot))
+```
+
+
+
+##### Density, Info, and SE{.tabset}
+
+Now let's look at the test information and standard error for each 
+```{r echo=FALSE}
+# List out the names of our grades
+grades <- c("g3","g4","g5","g6","g7","g8")
+
+# Create test information dataframe for plotting
+for(i in 1:length(tk07.pars.out)) {
+  if(i == 1) {
+    tk07.ti <- data.frame(thetas = seq(-4,6,.1))
+  } 
+  temp.ti <- test_info(thetas = seq(-4,6,.1),
+          a = tk07.pars.out[[i]][,1],
+          b = tk07.pars.out[[i]][,2],
+          c = tk07.pars.out[[i]][,3]
+          ) %>%
+      select(-theta)
+  colnames(temp.ti) <- c(paste0(grades[i],".info"),paste0(grades[i],".se")) 
+  tk07.ti <- tk07.ti %>%
+    bind_cols(temp.ti)
+}
+
+# For loop to create plots for every 
+for(i in 1:length(grades)) {
+  
+  if(i == 1) {
+    plots.ls <- list()
+  }
+  
+  # Prep objects & values for ggplot
+  abilities <- tk07.abilities %>% filter(timepoint == grades[i])
+  abilities.old <- tk07.abilities.old %>% filter(timepoint == grades[i])
+  abilities.all <- abilities %>% 
+    mutate(Scale = "Scaled") %>% 
+    bind_rows(abilities.old %>% 
+                mutate(Scale = "Unscaled")
+              )
+  ti <- tk07.ti %>% select(thetas, starts_with(grades[i]))
+  colnames(ti) <- c("theta", "info", "se")
+  max.info <- max(ti$info)
+  max.se <- max(ti$se)
+  max.density <- max(max(density(abilities.all$ability_est[abilities.all$Scale=="Scaled"])$y),
+                     density(abilities.all$ability_est[abilities.all$Scale=="Unscaled"])$y)
+  
+  # Get colors to match the previous plots
+  default_colors <- hcl(h = seq(15, 375, 
+                                length = length(grades) + 1), 
+                        l = 65,
+                        c = 100)[1:length(grades)]
+  
+  # Create plot
+  plots.ls[[i]] <- ggplot() +
+    # Test information function
+    geom_line(data = ti, aes(x = theta, y = info),
+              color = "purple", linewidth = 0.5) +
+    # Standard error
+    geom_line(data = ti, aes(x = theta, y = se),
+              color = "orange3", linewidth = 0.5, linetype = "dotted") +
+    # Density plot
+    geom_density(data = abilities.all, 
+                 aes(x = ability_est,
+                     y = after_stat(density) * max.info / max.density,
+                     fill = Scale,
+                     color = Scale),
+                 alpha = 0.1) +
+    # Set colors for fill and color
+    scale_fill_manual(values = c("Scaled" = default_colors[i], "Unscaled" = "grey")) +
+    scale_color_manual(values = c("Scaled" = default_colors[i], "Unscaled" = "grey")) +
+    labs(title = paste0(toupper(grades[i]), " Ability Estimate Density Plot with Test Info and SE"),
+         x = "Theta",
+         y = "Test Information / Standard Error") +
+    theme_clean() +
+    scale_x_continuous(limits = c(-6, 6)) +
+    # Set y-axis limits for Test Information and SE
+    scale_y_continuous(
+      limits = c(0, 20),
+      name = "Test Information / Standard Error",
+      sec.axis = sec_axis(~ . * max.density / max.info,
+                          name = "Density of Ability Estimates")
+    ) +
+    theme(plot.title = element_text(size = 12),  # Adjust title size
+          legend.position.inside = c(0.05, 0.95),
+          legend.position = "inside",
+          legend.justification = c("left", "top")  # Adjust justification
+    )
+}
+```
+
+###### Grade 3
+```{r echo=FALSE}
+suppressWarnings(print(plots.ls[[1]]))
+```
+
+###### Grade 4
+```{r echo=FALSE}
+suppressWarnings(print(plots.ls[[2]]))
+```
+
+###### Grade 5
+```{r echo=FALSE}
+suppressWarnings(print(plots.ls[[3]]))
+```
+
+###### Grade 6
+```{r echo=FALSE}
+suppressWarnings(print(plots.ls[[4]]))
+```
+
+###### Grade 7
+```{r echo=FALSE}
+suppressWarnings(print(plots.ls[[5]]))
+```
+
+###### Grade 8
+```{r echo=FALSE}
+suppressWarnings(print(plots.ls[[6]]))
+```
+
+
+
+#### Score Reporting: Piecewise Linear Scaling
+
+Let's take the Piecewise Linear scaling method as before. But first, let's take a look at the distribution of our ability estimates:
+```{r}
+psych::describe(tk07.abilities$ability_est)
+```
+
+Since we have a broader range, let's select more relaxed limits for our theta scale: c(-5, 5). Here's a plot of the scaling for all grades.
+```{r}
+A.piece <- (800 - 200) / (5 - (-5))
+B.piece <- 200 - A.piece * (-5)
+
+tk07.scaled.scores <- tk07.abilities %>%
+  mutate(scale_linear_piece = ceiling(A.piece * ability_est + B.piece),
+         scale_linear_piece = ifelse(scale_linear_piece < 200, 200, 
+                                     ifelse(scale_linear_piece > 800, 800, scale_linear_piece)))
+
+tk07.scaled.scores %>%
+  ggplot(., aes(x = ability_est, y = scale_linear_piece, group = timepoint, color = timepoint)) +
+  geom_jitter(alpha = 0.2) +
+  # scale_color_manual(name = "Grade") +
+  labs(
+    title = "Linear Scaling Results",
+    x = "Theta",
+    y = "Scaled Score",
+    color = "Timepoint",
+    group = "Timepoint"
+  ) +
+  theme_clean() +
+  theme(legend.position.inside = c(0.05, 0.95),  # Position in the top left corner
+        legend.position = "inside",
+        legend.justification = c("left", "top"))  # Adjust justification
+```
+Looks like we have more students with extreme values that received the scale minimum of 200, and a few that received a maximum of 800. Let's see how many min and max scores we have by grade.
+
+```{r}
+tk07.scaled.scores %>%
+  group_by(timepoint) %>%
+  summarise(n_200_score = sum(scale_linear_piece == 200),
+            n_800_score = sum(scale_linear_piece == 800))
+```
+
+Somewhat expected, we have more 800 scores in higher grades, but interestingly we also have more lower scores in the higher grades. This is likely a result of more variability at higher grades, and perhaps the way we simulated response data, rather than the vertical scaling itself.
+
+Let's take a look at our scale range by quintile for the piecewise linear approach:
+
+```{r}
+tk07.scaled.scores %>% scale_breakdown(scale_linear_piece)
+```
+It looks like we have a decent range in the middle quintiles, we'll just stick with this scaling method.
+
+
+### Growth Modeling
+Since we have (simulated) longitudinal data, we amy alwo want to perform growth modeling of the data. Here's an example of what that could look like.
+
+#### Visualizing Student Scores
+First, let's visualize student growth over time using the scaled scores.
+```{r}
+tk07.scaled.scores %>%
+  mutate(student = rep(1:1000,6)) %>%
+  ggplot(., aes(x = timepoint, y = scale_linear_piece, group = student, color = as.factor(student))) +
+  geom_line(alpha = 0.2) +
+  labs(
+    title = "Scaled Scores Over Time",
+    x = "Timepoint",
+    y = "Scaled Score"
+  ) +
+  theme_clean() +
+  theme(legend.position = "none")
+```
+
+It seems like we have a trend upward, which is good; we would expect/hope that students improve in ability over time.
+
+
+Let's create a linear mixed model of student growth over time. If you're not familiar with mixed modeling, it basically means that we have both fixed and random effects.
+
+- **Fixed effects** are effects that apply to EVERYONE in the model. If you've performed simple linear regression before, all parameters for the predictors in the model are **fixed** effects. In our case, the fixed effects would be an intercept (probably around 500 or so), and a slightly positive fixed effect for `timepoint` (scores increase over time).
+- **Random effects** accounts for individual variability within for a certain level within the model. In other words, certain predictors are allowed to vary *randomly* between cases. In our example, our predictor is Scaled Score, and random effects would apply to students, and we could have:
+
+1. **Random Intercept of Scaled Score**: every student starts at different intercepts, which deviates from our Intercept Fixed Effect.
+2. **Random Slopes of Scaled Score**: every student has a different growth trajectory, which deviates from our Timepoint Fixed Effect.
+3. or Both.
+
+
+#### Modeling{.tabset}
+Let's estimate (1) a simple linear regression, then (2) a model with random intercepts, and (3) random slopes and intercepts, and compare the two.
+
+Specifically, our model will predict **Scaled Score** by **Timepoint** (grade),
+
+Note, we'll change our timepoints so g3 = 0, g4 = 1, and so on.
+
+##### Model 1: Simple Linear Model
+Let's use the `nlme::gls()` function to estimate a simple linear regression.
+```{r}
+tk07.scaled.scores.modeling <- tk07.scaled.scores %>%
+  mutate(timepoint = as.numeric(gsub("g","",timepoint)) - 3) # Set timepoint g3 = 0
+
+tk07.growth.model.1 <- gls(data = tk07.scaled.scores.modeling, 
+       scale_linear_piece ~ timepoint,
+       method = "ML") 
+
+summary(tk07.growth.model.1)
+```
+
+Here's how to interpret some of the output:
+
+  - The `(Intercept)` is at timepoint 5.5 (midway between g5 and g6), so basically midway between grades 3 and 8, the average score is expected to be 511. This parameter is significantly different from 0 (`p-value = 0`).
+  - The `timepoint` is the slope of our predictor "timepoint". It's positive (`Value = 17`) and significantly differnet from 0, so there is growth, and it represents that with each increase (or decrease) in 1 grade from the intercept, our Scaled Score is estimated to increase (or decrease) by 17 points.
+
+
+
+##### Model 2: Random intercepts
+Next, let's see if allowing intercepts to vary across student our model improves.
+```{r}
+tk07.growth.model.2 <- lme(fixed = scale_linear_piece ~ timepoint,
+                           random = ~ 1 | student,
+                           data = tk07.scaled.scores.modeling,
+                           method = "ML")
+
+summary(tk07.growth.model.2)
+anova(tk07.growth.model.1, tk07.growth.model.2)
+```
+
+This output indicates that our Random Intercept (under `Random effects:`) accounts for 78.9 units of variance, and the remaining unexplained (residual) variance is 45.1.  This means that of all the variance in the model, the introduction of the random intercept accounts for a little less than 2/3 of the variance.
+
+Furthermore, the last table is an ANOVA comparing our Fixed and Random Intercept models, indicating that the random intercept model is significantly better than our Fixed model.
+
+
+##### Model 2: Random slopes & intercepts
+Now let's see if allowing intercepts *and slopes* to vary across student our model improves.
+```{r}
+tk07.growth.model.3 <- lme(fixed = scale_linear_piece ~ timepoint,
+                           random = ~ timepoint | student,
+                           data = tk07.scaled.scores.modeling,
+                           method = "ML")
+
+summary(tk07.growth.model.3)
+anova(tk07.growth.model.1, tk07.growth.model.2, tk07.growth.model.3)
+```
+
+The ANOVA comparing all of our models indicates that our last model, with Random Slopes and Intercepts, is significantly better than our Fixed model.
+
+
+#### Visualize Growth Model
+
+```{r}
+fixed_intercept <- tk07.growth.model.3$coefficients$fixed[1]
+fixed_slope <- tk07.growth.model.3$coefficients$fixed[2
+                                                      ]
+tk07.growth.predictions <- tk07.growth.model.3$coefficients$random %>%
+  data.frame() %>%
+  rename_with( ~ c("random_intercept","random_slope")) %>%
+  mutate(g3 = fixed_intercept + random_intercept + 0 * (fixed_slope + random_slope),
+         g4 = fixed_intercept + random_intercept + 1 * (fixed_slope + random_slope),
+         g5 = fixed_intercept + random_intercept + 2 * (fixed_slope + random_slope),
+         g6 = fixed_intercept + random_intercept + 3 * (fixed_slope + random_slope),
+         g7 = fixed_intercept + random_intercept + 4 * (fixed_slope + random_slope),
+         g8 = fixed_intercept + random_intercept + 5 * (fixed_slope + random_slope)) %>%
+  pivot_longer(cols = c(g3, g4, g5, g6, g7, g8), 
+               names_to = "timepoint", 
+               values_to = "predicted_score") %>%
+  select(timepoint, predicted_score) %>%
+  mutate(student = sort(rep(1:1000,6)))
+
+tk07.growth.predictions %>%
+  ggplot(., aes(x = timepoint, y = predicted_score, group = student, color = as.factor(student))) +
+  geom_line(alpha = 0.2) +
+  labs(title = "Model-Estimated Growth Trajectories by Student",
+       x = "Timepoint",
+       y = "Predicted Score") +
+  theme(legend.position = "none") +
+  theme_clean()
+
+tk07.growth.predictions %>%
+  ggplot(., aes(x = timepoint, y = predicted_score, group = student, color = as.factor(student))) +
+  geom_line(alpha = 0.2) +
+  labs(
+    title = "Model-Estimated Growth Trajectories",
+    x = "Timepoint",
+    y = "Predicted Scaled Score"
+  ) +
+  theme_clean() +
+  theme(legend.position = "none")
+```
+```
+
+
+
+
+#### CHECK DATA
+
+```{r}
+tk07.scaled.scores %>%
+  mutate(student = rep(1:1000,6)) %>%
+  filter(scale_linear_piece == 200) %>%
+  arrange(desc(ability_true))
+```
+
+```{r}
+tk07.responses$responses.8[728,]
+est_ability_mle(tk07.responses$responses.8[728,], 
+                tk07.pars.out$grade8[,1],
+                tk07.pars.out$grade8[,2],
+                tk07.pars.out$grade8[,3])
+```
+
+
+
+
+```{r}
+for(i in 1:length(tk07.pars.out)) {
+  params <- tk07.pars.out[[i]] %>%
+    as.data.frame %>%
+    setNames(c("a","b","c")) %>%
+    mutate(group = grades[i]) %>%
+    select(group, b)
+  if(i == 1) {
+    tk07.b.params <- params
+  } else {
+  tk07.b.params <- tk07.b.params %>%
+    bind_rows(., params)
+  }
+}
+```
+
+
+```{r}
+tk07.b.params %>%
+  mutate(item = seq(1:nrow(tk07.b.params)),
+         group_position = as.numeric(gsub("g","",group)) - 2) %>%
+  ggplot(aes(x = b, y = group_position)) +
+  geom_hline(aes(yintercept = group_position), color = "gray80") +
+  geom_point(aes(color = group), size = 3, alpha = 0.5) +
+  scale_y_continuous(breaks = 1:6, labels = grades) +
+  labs(title = "Item Difficulty Parameters Across 6 Grades",
+       x = "Item Difficulty (Theta)",
+       y = "Grade",
+       color = "Grade") +
+  theme_clean() +
+  coord_cartesian(ylim = c(0.5, 6.5)) +
+  theme(legend.position = "none")
+```
+
+
+
+
+What next:
+1. Scaling
+2. Percentile ranks
+3. Visualize the item parameters on the same scale.
+4. Longitudinal data simulation
+
+
+
+
+
+
+
+----
+
+```{r}
+pars <- TK07$pars
+common <- TK07$common
+cat <- list(rep(2,26),rep(2,34),rep(2,37),rep(2,40),rep(2,41),rep(2,43))
+pm1 <- as.poly.mod(26)
+pm2 <- as.poly.mod(34)
+pm3 <- as.poly.mod(37)
+pm4 <- as.poly.mod(40)
+pm5 <- as.poly.mod(41)
+pm6 <- as.poly.mod(43)
+pm <- list(pm1, pm2, pm3, pm4, pm5, pm6)
+x <- as.irt.pars(pars, common, cat, pm, 
+  grp.names=paste("grade",3:8,sep=""))
+out <- plink(x)
+summary(out)
+constants <- link.con(out) # Extract linking constants
+```
+
+## Investigate small ability estimates
+
+```{r}
+abilities %>% 
+  rownames_to_column("case") %>%
+  mutate(case = as.numeric(case),
+         case = ifelse(group == "x.new", case - 1000, 
+                       ifelse(group == "y", case - 2000,
+                              case))) %>% 
+  filter(ability_est < -3) %>%
+  arrange(ability_est)
+```
+
+```{r}
+responses.y[c(754, 925),]
+```
+
+```{r}
+responses.y[579,]
+
+# est_ability(responses.y[579,],
+#             as = pars.out$group2[,1],
+#             bs = pars.out$group2[,2],
+#             cs = pars.out$group2[,3])
+
+abilities %>% 
+  ggplot(., aes(x = ability_est, color = group)) +
+  geom_histogram()
+
+x.abilities <- x.ability.old %>%
+  rename_with(., ~paste0(.x, ".old")) %>%
+  bind_cols(x.ability.new %>%
+              rename_with(., ~paste0(.x, ".new")))
+
+```
+
+And visualize the difference
+
+```{r}
+# Create object with six groups (all dichotomous items)
+pars <- TK07$pars
+common <- TK07$common
+cat <- list(rep(2,26),rep(2,34),rep(2,37),rep(2,40),rep(2,41),rep(2,43))
+pm1 <- as.poly.mod(26)
+pm2 <- as.poly.mod(34)
+pm3 <- as.poly.mod(37)
+pm4 <- as.poly.mod(40)
+pm5 <- as.poly.mod(41)
+pm6 <- as.poly.mod(43)
+pm <- list(pm1, pm2, pm3, pm4, pm5, pm6)
+x <- as.irt.pars(pars, common, cat, pm, 
+  grp.names=paste("grade",3:8,sep=""))
+out <- plink(x)
+summary(out)
+constants <- link.con(out) # Extract linking constants
+
+# Create an irt.pars object and a sep.pars object for two groups of
+# nominal response model items. Compare non-symmetric and symmetric 
+# minimization. Note: This example may take a minute or two to run
+## Not run: 
+pm <- as.poly.mod(60, "nrm", 1:60)
+pars1 <- as.irt.pars(act.nrm$yr97, cat=rep(5,60), poly.mod=pm)
+pars2 <- sep.pars(act.nrm$yr98, cat=rep(5,60), poly.mod=pm)
+out <- plink(list(pars1, pars2), matrix(1:60,60,2))
+out1 <- plink(list(pars1, pars2), matrix(1:60,60,2), symmetric=TRUE)
+summary(out, descrip=TRUE)
+summary(out1, descrip=TRUE)
+
+## End(Not run)
+
+# Compute linking constants for two groups with multiple-choice model
+# item parameters. Rescale theta values and item parameters using
+# the Haebara linking constants
+# Note: This example may take a minute or two to run
+## Not run: 
+theta <- rnorm(100) # In practice, estimated theta values would be used
+pm <- as.poly.mod(60, "mcm", 1:60)
+x <- as.irt.pars(act.mcm, common=matrix(1:60,60,2), cat=list(rep(6,60),
+  rep(6,60)), poly.mod=list(pm,pm))
+out <- plink(x, ability=list(theta,theta), rescale="HB")
+pars.out <- link.pars(out)
+ability.out <- link.ability(out)
+summary(out, descrip=TRUE)
+
+## End(Not run)
+
+# Compute linking constants for two groups using mixed-format items and 
+# a mixed placement of common items. Compare calibrations with the
+# inclusion or exclusion of NRM items. This example uses the dgn dataset.
+pm1 <- as.poly.mod(55,c("drm","gpcm","nrm"),dgn$items$group1)
+pm2 <- as.poly.mod(55,c("drm","gpcm","nrm"),dgn$items$group2)
+x <- as.irt.pars(dgn$pars,dgn$common,dgn$cat,list(pm1,pm2))
+# Run with the NRM common items included
+out <- plink(x) 
+# Run with the NRM common items excluded
+out1 <- plink(x,exclude="nrm") 
+summary(out)
+summary(out1)
+
+
+# Compute linking constants for six groups using mixed-format items and 
+# a mixed placement of common items. This example uses the reading dataset.
+# See the information on the dataset for an interpretation of the output.
+pm1 <- as.poly.mod(41, c("drm", "gpcm"), reading$items[[1]])
+pm2 <- as.poly.mod(70, c("drm", "gpcm"), reading$items[[2]])
+pm3 <- as.poly.mod(70, c("drm", "gpcm"), reading$items[[3]])
+pm4 <- as.poly.mod(70, c("drm", "gpcm"), reading$items[[4]])
+pm5 <- as.poly.mod(72, c("drm", "gpcm"), reading$items[[5]])
+pm6 <- as.poly.mod(71, c("drm", "gpcm"), reading$items[[6]])
+pm <- list(pm1, pm2, pm3, pm4, pm5, pm6)
+x <- as.irt.pars(reading$pars, reading$common, reading$cat, pm, base.grp=4)
+out <- plink(x)
+summary(out)
+
+
+###### Multidimensional Examples ######
+# Reckase Chapter 9
+pm <- as.poly.mod(80, "drm", list(1:80))
+x <- as.irt.pars(reckase9$pars, reckase9$common, 
+  list(rep(2,80),rep(2,80)), list(pm,pm), dimensions=2)
+# Compute constants using the least squares method and 
+# the orthongal rotation with variable dilation. 
+# Rescale the item parameters using the LS method
+out <- plink(x, dilation="orth.vd", rescale="LS")
+summary(out, descrip=TRUE)
+# Extract the rescaled item parameters
+pars.out <- link.pars(out)
+
+# Compute constants using an oblique Procrustes method
+# Display output and descriptives
+out <- plink(x, dilation="oblique")
+summary(out, descrip=TRUE)
+
+# Compute constants using and orthogonal rotation with
+# a fixed dilation parameter 
+# Rescale the item parameters and ability estimates 
+# using the "HB" and "LS" methods.
+# Display the optimization iterations
+ability <- matrix(rnorm(40),20,2)
+out <- plink(x, method=c("HB","LS"), dilation="orth.fd", 
+   rescale="HB", ability=list(ability,ability),
+   control=list(trace=1,rel.tol=0.001))
+summary(out)
+# Extract rescaled ability estimates
+ability.out <- out$ability
+
+
+# Compute linking constants for two groups using mixed-format items 
+# modeled with the M3PL and MGPCM. Only compute constants using the 
+# orth.vd dilation.
+pm <- as.poly.mod(60,c("drm","gpcm"), list(c(1:60)[md.mixed$cat==2],
+  c(1:60)[md.mixed$cat>2]))
+x <- as.irt.pars(md.mixed$pars, matrix(1:60,60,2), 
+  list(md.mixed$cat, md.mixed$cat), 
+  list(pm, pm), dimensions=4, grp.names=c("Form.X","Form.Y"))
+out <- plink(x,dilation="orth.vd")
+summary(out, descrip=TRUE)
+
+
+# Illustration of construct shift and how to specify common dimensions
+pm <- as.poly.mod(80, "drm", list(1:80))
+pars <- cbind(round(runif(80),2),reckase9$pars[[1]])
+x <- as.irt.pars(list(pars,reckase9$pars[[2]]), reckase9$common, 
+list(rep(2,80),rep(2,80)), list(pm,pm), dimensions=c(3,2))
+dim.order <- matrix(c(1,2,3,NA,1,2),2,3,byrow=TRUE)
+out <- plink(x, dilation="oblique", dim.order=dim.order, rescale="LS")
+summary(out)
+pars.out <- link.pars(out)
+```
+
+
+
+
+To do this we'll use 
+```{r}
+# Create a function to fit a linear model
+fit_linear_model <- function(data) {
+  model <- lm(scale_linear_piece ~ timepoint, data = data)
+  return(coef(model))
+}
+
+tk07.lm <- tk07.scaled.scores %>%
+  mutate(timepoint = as.numeric(gsub("g","",timepoint)) - 3) %>%  # Make timepoint start at "0" instead of "3"
+  group_by(student) %>%
+  nest() %>%
+  mutate(fit = map(data, fit_linear_model)) %>%
+  unnest_wider(fit) %>%
+  select(-data) %>%
+  rename_with(~c("student","intercept","slope")) %>% 
+  ungroup
+
+tk07.lm %>%
+  arrange(slope) %>%
+  mutate(g3 = intercept,
+         g8 = 5 * slope + intercept,
+         student = 1:1000) %>% 
+  pivot_longer(cols = c(g3,g8), names_to = "Grade", values_to = "Score") %>%
+  ggplot(., aes(x = Grade, y = Score, group = student, color = factor(student))) +
+  geom_line(alpha = 0.2) +
+  scale_x_discrete(limits = c("g3", "g8"), expand = c(0.01, 0.01)) +  # Control x-axis limits and expansion
+  theme_clean() +
+    labs(title = "Linear Growth Models of Student Scaled Scores",
+       x = "Grade",
+       y = "Scaled Score") +
+  theme(legend.position = "none")
+```
+
+And examine the slope and intercept of those models.
+```{r}
+tk07.lm %>%
+  ggplot(., aes(x = slope, y = intercept)) +
+  geom_point(alpha = 0.2, color = "blue3") +
+  labs(title = "Slope and Intercept of Student Growth Models",
+   x = "Intercept",
+   y = "Slope") +
+  theme_clean()
+```
+
+
+Let's start by 

@@ -1,0 +1,16 @@
+<footer>
+    <p>&copy; <span id="current-year"></span> Scott Frohn. All rights reserved.</p>
+</footer>
+
+<style>
+    footer {
+        text-align: center;
+        background-color: var(--secondary-color);
+        color: var(--light-text-color);
+        margin-top: 40px;
+    }
+</style>
+
+<script>
+    document.getElementById('current-year').textContent = new Date().getFullYear();
+</script>

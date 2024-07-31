@@ -1,0 +1,12 @@
+---
+title: "Scott Frohn - About"
+output:
+  html_document:
+    template: "template.html"
+---
+
+Hello again!
+
+
+![Lisbon, Portugal](scott_lisbon.png)
+

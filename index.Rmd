@@ -1,5 +1,5 @@
 ---
-title: "Scott Frohn - GitHub Pages"
+title: "Scott Frohn - Github"
 output:
   html_document:
     template: "template.html"

@@ -1,13 +1,16 @@
 ---
 title: "Simple IRT CAT"
 author: 'Scott Frohn'
-date: 'July 18, 2024'
+date: "`r Sys.Date()`"
 bibliography: "../references.bib"
 output: 
   html_document: 
     number_sections: false
     mathjax: "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"
-    template: "../template.html"
+    css: "../styles.css"
+    includes: 
+      before_body: "../header.html"
+      after_body: "../footer.html"
     toc: false
     fig_width: 7
     fig_height: 4.5
@@ -16,7 +19,7 @@ output:
     code_folding: hide
 ---
 
-# Creating & Simulating a Simple CAT
+*Note: In this document, all R code is hidden by default to improve readability. You can reveal individual code chunks by clicking "Show" or display all code at once by clicking the "Code" button at the top right.*
 
 ## Introduction
 
@@ -41,7 +44,7 @@ The effectiveness of CAT relies on a well-calibrated item bank, typically using 
 
 Note that there are other R packages that are designed to facilitate computerized adaptive testing (e.g., [catR](https://cran.r-project.org/web/packages/catR/)), but for this project, I've built the package `CATFunctions` from scratch.
 
-For futher reading on IRT and CAT, I'll recommend:
+For further reading on IRT and CAT, I'll recommend:
 
 -   @deayala2022irt for a comprehensive and accessible overview of IRT, and
 -   @magis2017cat for a detailed treatment of computerized adaptive testing, with examples in R.
@@ -264,7 +267,7 @@ We have a few options for selecting subsequent items in a CAT. Here are a few op
 
 -   \(f(\theta)\): Prior distribution of ability (e.g., standard normal distribution)
 
-There are many other selection methods we could use as well. For our purpose, let's just select the easiest one to implement now: **bOpt Criterion**, since the only values needed are the current ability estimate (\(\hat{\theta}_{t-1}(X_{t-1})\) and eligible item locations (\(b_i\)). The list of eligible items are updated by the function `update_eligible_items`, and the `next_item` function handles the items selection.
+There are many other selection methods we could use as well. For our purpose, let's just select the easiest one to implement now: **bOpt Criterion**, since the only values needed are the current ability estimate, \(\hat{\theta}_{t-1}(X_{t-1})\), and eligible item locations. The list of eligible items are updated by the function `update_eligible_items`, and the `next_item` function handles the items selection.
 
 ## Basic CAT, Step-By-Step
 
@@ -564,7 +567,7 @@ test_cat <- simulate_cat(item_bank = item_bank,
 test_cat$summary %>%
   mutate(residual = ability - final_ability) %>%
   psych::describe() %>% as.data.frame %>%
-  filter(vars !=1 ) %>% 
+  filter(vars != 1) %>% 
   select(-vars) %>%
   relocate(n, mean, median, sd, min, max)
 ```

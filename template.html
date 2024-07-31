@@ -128,26 +128,55 @@
         }
         
         .nav-link {
-        color: var(--light-text-color);
-        text-decoration: none;
-        padding: 10px 15px;
-        font-size: 16px;
-        transition: background-color 0.3s ease;
-    	  }
-		    .nav-link:hover {
-    	  background-color: rgba(255,255,255,0.1);
-		    }
-		    
-		    ol, ul {
-        padding-left: 30px;
+            color: var(--light-text-color);
+            text-decoration: none;
+            padding: 10px 15px;
+            font-size: 16px;
+            transition: background-color 0.3s ease;
+    	}
+		.nav-link:hover {
+    	    background-color: rgba(255,255,255,0.1);
+		}
+		
+		ol, ul {
+            padding-left: 30px;
         }
         
         li {
-        margin-bottom: 10px;
+            margin-bottom: 10px;
         }
         
+        .code-folding-btn {
+            background-color: var(--primary-color);
+            color: var(--light-text-color);
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+            margin-bottom: 5px;
+            float: right;
+            margin-left: 10px; /* Add some space between button and code */
+        }
+        .code-folding-btn:hover {
+            background-color: var(--secondary-color);
+        }
         
+        #toggle-all-btn {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            z-index: 1000;
+            background-color: var(--primary-color);
+            color: var(--light-text-color);
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        #toggle-all-btn:hover {
+            background-color: var(--secondary-color);
+        }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <script type="text/javascript">
     document.addEventListener("DOMContentLoaded", function() {
@@ -158,9 +187,68 @@
           processEscapes: true
         }
       };
+
+       // Code folding functionality
+      $$(document).ready(function() {
+        $$('pre.r').each(function(i) {
+          var $$this = $$(this);
+          var id = 'code-block-' + i;
+          $$this.attr('id', id);
+          
+          var button = $$('<button class="code-folding-btn" type="button" data-toggle="collapse" data-target="#' + id + '" aria-expanded="false" aria-controls="' + id + '">Show Code</button>');
+          
+          $$this.addClass('collapse');
+          $$this.before(button);
+
+          button.on('click', function() {
+            var $$btn = $$(this);
+            if ($$btn.text() === 'Show Code') {
+              $$btn.text('Hide Code');
+              $$this.collapse('show');
+            } else {
+              $$btn.text('Show Code');
+              $$this.collapse('hide');
+            }
+          });
+        });
+
+        // Add toggle all button
+        $$('body').append('<button id="toggle-all-btn">Show All</button>');
+
+        $$('#toggle-all-btn').on('click', function() {
+          var $$btn = $$(this);
+          var $$codeBtns = $$('.code-folding-btn');
+          var $$codeBlocks = $$('pre.r');
+
+          if ($$btn.text() === 'Show All Code') {
+            $$btn.text('Hide All Code');
+            $$codeBtns.text('Hide Code');
+            $$codeBlocks.collapse('show');
+          } else {
+            $$btn.text('Show All Code');
+            $$codeBtns.text('Show Code');
+            $$codeBlocks.collapse('hide');
+          }
+        });
+
+        // Initialize based on code_folding option
+        var codeBlocks = $$('pre.r');
+        var buttons = $$('.code-folding-btn');
+        var showAll = "$$code_folding$$" === "show";
+
+        if (showAll) {
+          codeBlocks.collapse('show');
+          buttons.text('Hide Code');
+          $$('#toggle-all-btn').text('Hide All Code');
+        } else {
+          codeBlocks.collapse('hide');
+          buttons.text('Show Code');
+          $$('#toggle-all-btn').text('Show All Code');
+        }
+      });
     });
     </script>
-        
+    
     $if(highlighting-css)$
     <style type="text/css">
       $highlighting-css$
@@ -176,31 +264,27 @@
 <body>
     <div class="ribbon">
         <div class="ribbon-content">
-            <a href="index.html" class="name">Scott Frohn</a>
+            <a href="/index.html" class="name">Scott Frohn</a>
             <div>
-            	<a href="about.html" class="nav-link">About Me</a>
+            	<a href="/about.html" class="nav-link">About Me</a>
                 <div class="dropdown">
                     <button class="dropbtn">Psychometrics</button>
                     <div class="dropdown-content">
-                        <a href="CAT/SimpleCAT.html">Simple CAT</a>
+                        <a href="/CAT/SimpleCAT.html">Simple CAT</a>
                     </div>
                 </div>
                 <div class="dropdown">
                     <button class="dropbtn">Data Science</button>
                     <div class="dropdown-content">
-                        <a href="#">Link 1</a>
-                        <a href="#">Link 2</a>
-                        <a href="#">Link 3</a>
                     </div>
                 </div>
+                <!--
                 <div class="dropdown">
                     <button class="dropbtn">Tutorials</button>
                     <div class="dropdown-content">
-                        <a href="#">Link 1</a>
-                        <a href="#">Link 2</a>
-                        <a href="#">Link 3</a>
                     </div>
                 </div>
+                -->
             </div>
         </div>
     </div>
@@ -210,5 +294,6 @@
     <footer>
         <p>&copy; 2024 Scott Frohn. All rights reserved.</p>
     </footer>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
 </body>
 </html>
